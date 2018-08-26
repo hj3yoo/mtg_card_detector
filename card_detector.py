@@ -4,6 +4,7 @@ import pandas as pd
 import math
 from screeninfo import get_monitors
 
+
 def detect_a_card(img, thresh_val=80, blur_radius=None, dilate_radius=None, min_hyst=80, max_hyst=200,
                   min_line_length=None, max_line_gap=None, debug=False):
     dim_img = (len(img[0]), len(img)) # (width, height)
