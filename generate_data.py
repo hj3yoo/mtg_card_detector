@@ -5,7 +5,11 @@ import pickle
 import math
 import random
 import os
-
+import re
+import cv2
+import fetch_data
+import sys
+import numpy as np
 
 # Referenced from geaxgx's playing-card-detection: https://github.com/geaxgx/playing-card-detection
 class Backgrounds:
@@ -57,10 +61,47 @@ def load_dtd(dtd_dir='data/dtd/images', dump_it=True, dump_batch_size=1000):
     return bg_images
 
 
+def apply_bounding_box(img, card_info, display=False):
+    # Mana symbol - They are located on the top right side of the card, next to the name.
+    # Their position is stationary, and is right-aligned.
+    has_mana_cost = isinstance(card_info['mana_cost'], str)  # Cards with no mana cost will have nan
+    is_planeswalker = 'Planeswalker' in card_info['type_line']
+    if has_mana_cost:
+        mana_cost = re.findall('\{(.*?)\}', card_info['mana_cost'])
+        x2 = 683
+        if is_planeswalker:
+            y1 = 50
+        else:
+            y1 = 67
+        for i in reversed(range(len(mana_cost))):
+            is_hybrid = '/' in mana_cost[i]
+            if is_hybrid:
+                box = [(x2 - 47, y1 - 8), (x2 + 2, y1 + 43)]  # (x1, y1), (x2, y2)
+                x2 -= 45
+            else:
+                box = [(x2 - 39, y1), (x2, y1 + 41)]  # (x1, y1), (x2, y2)
+                x2 -= 37
+
+            img_symbol = img[box[0][1]:box[1][1], box[0][0]:box[1][0]]
+            if display:
+                cv2.imshow('symbol', img_symbol)
+                cv2.waitKey(0)
+
+
 def main():
     #bg_images = load_dtd()
-    bg = Backgrounds()
-    bg.get_random(display=True)
+    #bg = Backgrounds()
+    #bg.get_random(display=True)
+    df = fetch_data.load_all_cards_text('data/all_cards.csv')
+    #repeat = 'y'
+    while True:
+        rand_card = df.iloc[random.randint(0, df.shape[0] - 1)]
+        card_img = cv2.imread('data/png/%s/%s_%s.png' % (rand_card['set'], rand_card['collector_number'],
+                                                         fetch_data.get_valid_filename(rand_card['name'])))
+        print(rand_card['name'])
+        sys.stdout.flush()
+        apply_bounding_box(card_img, rand_card, display=True)
+        #repeat = input('y to repeat, n to finish')
     return
 
 

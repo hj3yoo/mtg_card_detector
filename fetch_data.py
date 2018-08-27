@@ -32,6 +32,11 @@ def fetch_all_cards_text(url='https://api.scryfall.com/cards/search?q=layout:nor
     return df
 
 
+def load_all_cards_text(csv_name):
+    df = pd.read_csv(csv_name, sep=';')
+    return df
+
+
 # Pulled from Django framework (https://github.com/django/django/blob/master/django/utils/text.py)
 def get_valid_filename(s):
     """
@@ -50,7 +55,7 @@ def fetch_cards_image(df, out_dir='', size='png'):
     for ind, row in df.iterrows():
         png_url = row['image_uris'][size]
         if out_dir == '':
-            out_dir = 'data/png/%s' % row['set']
+            out_dir = 'data/%s/%s' % (size, row['set'])
         if not os.path.exists(out_dir):
             os.makedirs(out_dir)
         img_name = '%s/%s_%s.png' % (out_dir, row['collector_number'], get_valid_filename(row['name']))
@@ -62,7 +67,7 @@ def fetch_cards_image(df, out_dir='', size='png'):
 def main():
     df = fetch_all_cards_text(url='https://api.scryfall.com/cards/search?q=layout:normal+set:rtr+lang:en',
                               csv_name='data/all_cards.csv')
-    fetch_cards_image(df)
+    #fetch_cards_image(df)
     pass
 
 
