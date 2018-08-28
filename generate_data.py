@@ -10,6 +10,7 @@ import cv2
 import fetch_data
 import sys
 import numpy as np
+import pandas as pd
 
 # Referenced from geaxgx's playing-card-detection: https://github.com/geaxgx/playing-card-detection
 class Backgrounds:
@@ -69,11 +70,16 @@ def apply_bounding_box(img, card_info, display=False):
     if has_mana_cost:
         mana_cost = re.findall('\{(.*?)\}', card_info['mana_cost'])
         x2 = 683
+        y1 = 67
+
+        # Cards with specific type or from old sets have their symbol at a different position
         if is_planeswalker:
-            y1 = 50
-        else:
-            y1 = 67
+            y1 -= 17
+        if card_info['set'] in ['8ed', 'mrd', 'dst', '5dn']:
+            y1 -= 2
+
         for i in reversed(range(len(mana_cost))):
+            # Hybrid mana symbol are larger than a normal symbol
             is_hybrid = '/' in mana_cost[i]
             if is_hybrid:
                 box = [(x2 - 47, y1 - 8), (x2 + 2, y1 + 43)]  # (x1, y1), (x2, y2)
@@ -81,7 +87,6 @@ def apply_bounding_box(img, card_info, display=False):
             else:
                 box = [(x2 - 39, y1), (x2, y1 + 41)]  # (x1, y1), (x2, y2)
                 x2 -= 37
-
             img_symbol = img[box[0][1]:box[1][1], box[0][0]:box[1][0]]
             if display:
                 cv2.imshow('symbol', img_symbol)
@@ -92,15 +97,19 @@ def main():
     #bg_images = load_dtd()
     #bg = Backgrounds()
     #bg.get_random(display=True)
-    df = fetch_data.load_all_cards_text('data/all_cards.csv')
+    df = fetch_data.load_all_cards_text('data/csv/dgm.csv')
     #repeat = 'y'
     while True:
-        rand_card = df.iloc[random.randint(0, df.shape[0] - 1)]
-        card_img = cv2.imread('data/png/%s/%s_%s.png' % (rand_card['set'], rand_card['collector_number'],
-                                                         fetch_data.get_valid_filename(rand_card['name'])))
-        print(rand_card['name'])
+        card_info = df.iloc[random.randint(0, df.shape[0] - 1)]
+        print(card_info['name'])
+        card_img = cv2.imread('data/png/%s/%s_%s.png' % (card_info['set'], card_info['collector_number'],
+                                                         fetch_data.get_valid_filename(card_info['name'])))
+        if card_img is None:
+            fetch_data.fetch_card_image(card_info)
+            card_img = cv2.imread('data/png/%s/%s_%s.png' % (card_info['set'], card_info['collector_number'],
+                                                             fetch_data.get_valid_filename(card_info['name'])))
         sys.stdout.flush()
-        apply_bounding_box(card_img, rand_card, display=True)
+        apply_bounding_box(card_img, card_info, display=True)
         #repeat = input('y to repeat, n to finish')
     return
 

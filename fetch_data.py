@@ -1,4 +1,5 @@
 from urllib import request
+import ast
 import json
 import pandas as pd
 import re
@@ -12,7 +13,7 @@ def fetch_all_cards_text(url='https://api.scryfall.com/cards/search?q=layout:nor
     # get cards dataset as a json from the query
     while has_more:
         res_file_dir, http_message = request.urlretrieve(url)
-        with open(res_file_dir) as res_file:
+        with open(res_file_dir, 'r') as res_file:
             res_json = json.loads(res_file.read())
             cards += res_json['data']
             has_more = res_json['has_more']
@@ -27,12 +28,16 @@ def fetch_all_cards_text(url='https://api.scryfall.com/cards/search?q=layout:nor
         df = df[['artist', 'border_color', 'collector_number', 'color_identity', 'colors', 'flavor_text', 'image_uris',
                  'mana_cost', 'legalities', 'name', 'oracle_text', 'rarity', 'type_line', 'set', 'set_name', 'power',
                  'toughness']]
+        #df.to_json(csv_name)
         df.to_csv(csv_name, sep=';')  # Comma doesn't work, since some columns are saved as a dict
 
     return df
 
 
 def load_all_cards_text(csv_name):
+    #with open(csv_name, 'r') as json_file:
+    #    cards = json.loads(json_file.read())
+    #df = pd.DataFrame.from_dict(cards)
     df = pd.read_csv(csv_name, sep=';')
     return df
 
@@ -51,23 +56,42 @@ def get_valid_filename(s):
     return re.sub(r'(?u)[^-\w.]', '', s)
 
 
-def fetch_cards_image(df, out_dir='', size='png'):
-    for ind, row in df.iterrows():
+def fetch_all_cards_image(df, out_dir='', size='png'):
+    if isinstance(df, pd.Series):
+        fetch_card_image(df, out_dir, size)
+    else:
+        for ind, row in df.iterrows():
+            fetch_card_image(row, out_dir, size)
+
+
+def fetch_card_image(row, out_dir='', size='png'):
+    if isinstance(row['image_uris'], str):  # For some reason, dict isn't being parsed in the previous step
+        png_url = ast.literal_eval(row['image_uris'])[size]
+    else:
         png_url = row['image_uris'][size]
-        if out_dir == '':
-            out_dir = 'data/%s/%s' % (size, row['set'])
-        if not os.path.exists(out_dir):
-            os.makedirs(out_dir)
-        img_name = '%s/%s_%s.png' % (out_dir, row['collector_number'], get_valid_filename(row['name']))
-        request.urlretrieve(png_url, filename=img_name)
-        print(img_name)
-    pass
+    if out_dir == '':
+        out_dir = 'data/%s/%s' % (size, row['set'])
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+    img_name = '%s/%s_%s.png' % (out_dir, row['collector_number'], get_valid_filename(row['name']))
+    request.urlretrieve(png_url, filename=img_name)
+    print(img_name)
 
 
 def main():
-    df = fetch_all_cards_text(url='https://api.scryfall.com/cards/search?q=layout:normal+set:rtr+lang:en',
-                              csv_name='data/all_cards.csv')
-    #fetch_cards_image(df)
+    for set_name in ['mrd', 'dst', '5dn', 'chk', 'bok', 'sok', 'rav', 'gpt', 'dis', 'csp', 'tsp', 'plc', 'fut', 'lrw',
+                     'mor', 'shm', 'eve', 'ala', 'con', 'arb', 'zen', 'wwk', 'roe', 'som', 'mbs', 'nph', 'isd', 'dka',
+                     'avr', 'rtr', 'gtc', 'dgm', 'ths', 'bng', 'jou', '8ed', '9ed', '10e', 'm10', 'm11', 'm12', 'm13',
+                     'm14']:
+        csv_name = 'data/csv/%s.csv' % set_name
+        if not os.path.isfile(csv_name):
+            df = fetch_all_cards_text(url='https://api.scryfall.com/cards/search?q=layout:normal+set:%s+lang:en' % set_name,
+                                      csv_name=csv_name)
+        else:
+            df = load_all_cards_text(csv_name)
+        print(csv_name)
+        if not os.path.exists('data/png/%s' % set_name):
+            fetch_all_cards_image(df)
     pass
 
 
