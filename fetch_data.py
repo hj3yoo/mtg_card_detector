@@ -74,15 +74,16 @@ def fetch_card_image(row, out_dir='', size='png'):
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
     img_name = '%s/%s_%s.png' % (out_dir, row['collector_number'], get_valid_filename(row['name']))
-    request.urlretrieve(png_url, filename=img_name)
-    print(img_name)
+    if not os.path.isfile(img_name):
+        request.urlretrieve(png_url, filename=img_name)
+        print(img_name)
 
 
 def main():
-    for set_name in ['mrd', 'dst', '5dn', 'chk', 'bok', 'sok', 'rav', 'gpt', 'dis', 'csp', 'tsp', 'plc', 'fut', 'lrw',
-                     'mor', 'shm', 'eve', 'ala', 'con', 'arb', 'zen', 'wwk', 'roe', 'som', 'mbs', 'nph', 'isd', 'dka',
-                     'avr', 'rtr', 'gtc', 'dgm', 'ths', 'bng', 'jou', '8ed', '9ed', '10e', 'm10', 'm11', 'm12', 'm13',
-                     'm14']:
+    for set_name in ['8ed', 'mrd', 'dst', '5dn', 'chk', 'bok', 'sok', '9ed', 'rav', 'gpt', 'dis', 'csp', 'tsp', 'plc',
+                     'fut', '10e', 'lrw', 'mor', 'shm', 'eve', 'ala', 'con', 'arb', 'm10', 'zen', 'wwk', 'roe', 'm11',
+                     'som', 'mbs', 'nph', 'm12', 'isd', 'dka', 'avr', 'm13', 'rtr', 'gtc', 'dgm', 'm14', 'ths', 'bng',
+                     'jou']:
         csv_name = 'data/csv/%s.csv' % set_name
         if not os.path.isfile(csv_name):
             df = fetch_all_cards_text(url='https://api.scryfall.com/cards/search?q=layout:normal+set:%s+lang:en' % set_name,
@@ -90,8 +91,7 @@ def main():
         else:
             df = load_all_cards_text(csv_name)
         print(csv_name)
-        if not os.path.exists('data/png/%s' % set_name):
-            fetch_all_cards_image(df)
+        fetch_all_cards_image(df, out_dir='../usb/data/png/%s' % set_name)
     pass
 
 

@@ -63,18 +63,15 @@ def load_dtd(dtd_dir='data/dtd/images', dump_it=True, dump_batch_size=1000):
 
 
 def apply_bounding_box(img, card_info, display=False):
-    # Mana symbol - They are located on the top right side of the card, next to the name.
+    # Mana symbol - They are located on the top right side of the card, next to the name
     # Their position is stationary, and is right-aligned.
     has_mana_cost = isinstance(card_info['mana_cost'], str)  # Cards with no mana cost will have nan
-    is_planeswalker = 'Planeswalker' in card_info['type_line']
     if has_mana_cost:
         mana_cost = re.findall('\{(.*?)\}', card_info['mana_cost'])
         x2 = 683
         y1 = 67
 
         # Cards with specific type or from old sets have their symbol at a different position
-        if is_planeswalker:
-            y1 -= 17
         if card_info['set'] in ['8ed', 'mrd', 'dst', '5dn']:
             y1 -= 2
 
@@ -88,29 +85,105 @@ def apply_bounding_box(img, card_info, display=False):
                 box = [(x2 - 39, y1), (x2, y1 + 41)]  # (x1, y1), (x2, y2)
                 x2 -= 37
             img_symbol = img[box[0][1]:box[1][1], box[0][0]:box[1][0]]
-            if display:
-                cv2.imshow('symbol', img_symbol)
-                cv2.waitKey(0)
+            #if display:
+            #    cv2.imshow('symbol', img_symbol)
+            #    cv2.waitKey(0)
+
+    # Set symbol - located on the right side of the type box in the centre of the card, next to the card type
+    # Only one symbol exists, and its colour varies by rarity.
+    if card_info['set'] in ['8ed']:
+        x1 = 622
+        x2 = 670
+    elif card_info['set'] in ['mrd', 'm10', 'm11', 'm12', 'm13', 'm14']:
+        x1 = 602
+        x2 = 684
+    elif card_info['set'] in ['dst']:
+        x1 = 636
+        x2 = 673
+    elif card_info['set'] in ['5dn']:
+        x1 = 630
+        x2 = 675
+    elif card_info['set'] in ['bok', 'rtr']:
+        x1 = 633
+        x2 = 683
+    elif card_info['set'] in ['sok', 'mbs']:
+        x1 = 638
+        x2 = 683
+    elif card_info['set'] in ['rav']:
+        x1 = 640
+        x2 = 678
+    elif card_info['set'] in ['csp']:
+        x1 = 650
+        x2 = 683
+    elif card_info['set'] in ['tsp', 'lrw', 'zen', 'wwk', 'ths']:
+        x1 = 640
+        x2 = 683
+    elif card_info['set'] in ['plc', 'fut', 'shm', 'eve']:
+        x1 = 625
+        x2 = 685
+    elif card_info['set'] in ['10e']:
+        x1 = 623
+        x2 = 680
+    elif card_info['set'] in ['mor', 'roe', 'bng']:
+        x1 = 637
+        x2 = 687
+    elif card_info['set'] in ['ala', 'arb']:
+        x1 = 635
+        x2 = 680
+    elif card_info['set'] in ['nph']:
+        x1 = 642
+        x2 = 678
+    elif card_info['set'] in ['gtc']:
+        x1 = 610
+        x2 = 683
+    elif card_info['set'] in ['dgm']:
+        x1 = 618
+        x2 = 678
+    else:
+        x1 = 630
+        x2 = 683
+    img_symbol = img[y1:y2, x1:x2]
+    if display:
+        cv2.imshow('symbol', img_symbol)
+        cv2.waitKey(0)
+
+    # Name box - The long bar on the top with card name and mana symbols
+    # TODO
+
+    # Type box - The long bar on the middle with card type and set symbols
+    # TODO
+
+    # Image box - the large image on the top half of the card
+    # TODO
 
 
 def main():
     #bg_images = load_dtd()
     #bg = Backgrounds()
     #bg.get_random(display=True)
-    df = fetch_data.load_all_cards_text('data/csv/dgm.csv')
-    #repeat = 'y'
-    while True:
-        card_info = df.iloc[random.randint(0, df.shape[0] - 1)]
-        print(card_info['name'])
-        card_img = cv2.imread('data/png/%s/%s_%s.png' % (card_info['set'], card_info['collector_number'],
-                                                         fetch_data.get_valid_filename(card_info['name'])))
+
+    card_pool = pd.DataFrame()
+    for set_name in ['8ed', 'mrd', 'dst', '5dn', 'chk', 'bok', 'sok', '9ed', 'rav', 'gpt', 'dis', 'csp', 'tsp', 'plc',
+                     'fut', '10e', 'lrw', 'mor', 'shm', 'eve', 'ala', 'con', 'arb', 'm10', 'zen', 'wwk', 'roe', 'm11',
+                     'som', 'mbs', 'nph', 'm12', 'isd', 'dka', 'avr', 'm13', 'rtr', 'gtc', 'dgm', 'm14', 'ths', 'bng',
+                     'jou']:
+        df = fetch_data.load_all_cards_text('data/csv/%s.csv' % set_name)
+        for _ in range(3):
+            card_info = df.iloc[random.randint(0, df.shape[0] - 1)]
+            # Currently ignoring planeswalker cards due to their different card layout
+            is_planeswalker = 'Planeswalker' in card_info['type_line']
+            if not is_planeswalker:
+                card_pool = card_pool.append(card_info)
+
+    for _, card_info in card_pool.iterrows():
+        img_name = '../usb/data/png/%s/%s_%s.png' % (card_info['set'], card_info['collector_number'],
+                                                     fetch_data.get_valid_filename(card_info['name']))
+        print(img_name)
+        card_img = cv2.imread(img_name)
         if card_img is None:
-            fetch_data.fetch_card_image(card_info)
-            card_img = cv2.imread('data/png/%s/%s_%s.png' % (card_info['set'], card_info['collector_number'],
-                                                             fetch_data.get_valid_filename(card_info['name'])))
-        sys.stdout.flush()
+            fetch_data.fetch_card_image(card_info, out_dir='../usb/data/png/%s' % card_info['set'])
+            card_img = cv2.imread(img_name)
         apply_bounding_box(card_img, card_info, display=True)
-        #repeat = input('y to repeat, n to finish')
     return
 
 
