@@ -63,31 +63,44 @@ def load_dtd(dtd_dir='data/dtd/images', dump_it=True, dump_batch_size=1000):
 
 
 def apply_bounding_box(img, card_info, display=False):
+    # List of (object class, bounding box pts) pair of each objects
+    object_info_list = []
     # Mana symbol - They are located on the top right side of the card, next to the name
     # Their position is stationary, and is right-aligned.
     has_mana_cost = isinstance(card_info['mana_cost'], str)  # Cards with no mana cost will have nan
     if has_mana_cost:
         mana_cost = re.findall('\{(.*?)\}', card_info['mana_cost'])
-        x2 = 683
-        y1 = 67
+        x_anchor = 683
+        y_anchor = 65
 
         # Cards with specific type or from old sets have their symbol at a different position
         if card_info['set'] in ['8ed', 'mrd', 'dst', '5dn']:
-            y1 -= 2
+            y_anchor -= 2
 
         for i in reversed(range(len(mana_cost))):
             # Hybrid mana symbol are larger than a normal symbol
             is_hybrid = '/' in mana_cost[i]
             if is_hybrid:
-                box = [(x2 - 47, y1 - 8), (x2 + 2, y1 + 43)]  # (x1, y1), (x2, y2)
-                x2 -= 45
+                x1 = x_anchor - 47
+                x2 = x_anchor + 2
+                y1 = y_anchor - 8
+                y2 = y_anchor + 43
+                x_anchor -= 45
             else:
-                box = [(x2 - 39, y1), (x2, y1 + 41)]  # (x1, y1), (x2, y2)
-                x2 -= 37
-            img_symbol = img[box[0][1]:box[1][1], box[0][0]:box[1][0]]
-            #if display:
-            #    cv2.imshow('symbol', img_symbol)
-            #    cv2.waitKey(0)
+                x1 = x_anchor - 39
+                x2 = x_anchor
+                y1 = y_anchor
+                y2 = y_anchor + 43
+                x_anchor -= 37
+            # Append them to the list of bounding box with the appropriate label
+            symbol_name = 'mana_symbol:' + mana_cost[i]
+            key_pts = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
+            object_info_list.append((symbol_name, key_pts))
+
+            if display:
+                img_symbol = img[y1:y2, x1:x2]
+                cv2.imshow('symbol', img_symbol)
+                cv2.waitKey(0)
 
     # Set symbol - located on the right side of the type box in the centre of the card, next to the card type
     # Only one symbol exists, and its colour varies by rarity.
@@ -142,8 +155,15 @@ def apply_bounding_box(img, card_info, display=False):
     else:
         x1 = 630
         x2 = 683
-    img_symbol = img[y1:y2, x1:x2]
+    y1 = 589
+    y2 = 636
+    # Append them to the list of bounding box with the appropriate label
+    symbol_name = 'set_symbol:' + card_info['set']
+    key_pts = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
+    object_info_list.append((symbol_name, key_pts))
+
     if display:
+        img_symbol = img[y1:y2, x1:x2]
         cv2.imshow('symbol', img_symbol)
         cv2.waitKey(0)
 
@@ -155,6 +175,7 @@ def apply_bounding_box(img, card_info, display=False):
 
     # Image box - the large image on the top half of the card
     # TODO
+    return object_info_list
 
 
 def main():
@@ -183,7 +204,8 @@ def main():
         if card_img is None:
             fetch_data.fetch_card_image(card_info, out_dir='../usb/data/png/%s' % card_info['set'])
             card_img = cv2.imread(img_name)
-        apply_bounding_box(card_img, card_info, display=True)
+        object_list_info = apply_bounding_box(card_img, card_info, display=True)
+        print(object_list_info)
     return
 
 
