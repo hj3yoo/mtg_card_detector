@@ -11,6 +11,7 @@ import fetch_data
 import sys
 import numpy as np
 import pandas as pd
+from transform_data import ExtractedObject
 
 # Referenced from geaxgx's playing-card-detection: https://github.com/geaxgx/playing-card-detection
 class Backgrounds:
@@ -63,8 +64,9 @@ def load_dtd(dtd_dir='data/dtd/images', dump_it=True, dump_batch_size=1000):
 
 
 def apply_bounding_box(img, card_info, display=False):
-    # List of (object class, bounding box pts) pair of each objects
-    object_info_list = []
+    # List of detected objects to be fed into the neural net
+    # The first object is the entire card
+    detected_object_list = [ExtractedObject('card', [(0, 0), (len(img[0]), 0), (len(img[0]), len(img)), (0, len(img))])]
     # Mana symbol - They are located on the top right side of the card, next to the name
     # Their position is stationary, and is right-aligned.
     has_mana_cost = isinstance(card_info['mana_cost'], str)  # Cards with no mana cost will have nan
@@ -95,7 +97,7 @@ def apply_bounding_box(img, card_info, display=False):
             # Append them to the list of bounding box with the appropriate label
             symbol_name = 'mana_symbol:' + mana_cost[i]
             key_pts = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
-            object_info_list.append((symbol_name, key_pts))
+            detected_object_list.append(ExtractedObject(symbol_name, key_pts))
 
             if display:
                 img_symbol = img[y1:y2, x1:x2]
@@ -160,7 +162,7 @@ def apply_bounding_box(img, card_info, display=False):
     # Append them to the list of bounding box with the appropriate label
     symbol_name = 'set_symbol:' + card_info['set']
     key_pts = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
-    object_info_list.append((symbol_name, key_pts))
+    detected_object_list.append(ExtractedObject(symbol_name, key_pts))
 
     if display:
         img_symbol = img[y1:y2, x1:x2]
@@ -175,7 +177,7 @@ def apply_bounding_box(img, card_info, display=False):
 
     # Image box - the large image on the top half of the card
     # TODO
-    return object_info_list
+    return detected_object_list
 
 
 def main():
@@ -204,8 +206,8 @@ def main():
         if card_img is None:
             fetch_data.fetch_card_image(card_info, out_dir='../usb/data/png/%s' % card_info['set'])
             card_img = cv2.imread(img_name)
-        object_list_info = apply_bounding_box(card_img, card_info, display=True)
-        print(object_list_info)
+        detected_object_list = apply_bounding_box(card_img, card_info, display=True)
+        print(detected_object_list)
     return
 
 
