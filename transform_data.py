@@ -5,6 +5,7 @@ import numpy as np
 import imutils
 import pandas as pd
 import fetch_data
+import generate_data
 
 card_mask = cv2.imread('data/mask.png')
 
@@ -27,6 +28,23 @@ class ImageGenerator:
         self.height = height
         pass
 
+    def add_card(self, card, x=0, y=0, theta=0.0, scale=1.0):
+        """
+        Add a card to this generator scenario.
+        :param card: card to be added
+        :param x: new X-coordinate for the centre of the card
+        :param y: new Y-coordinate for the centre of the card
+        :param theta: new angle for the card
+        :param scale: new scale for the card
+        :return: none
+        """
+        self.cards.append(card)
+        card.x = x
+        card.y = y
+        card.theta = theta
+        card.scale = scale
+        pass
+
     def display(self):
         """
         Display the current state of the generator
@@ -38,12 +56,13 @@ class ImageGenerator:
             card_x = int(card.x + 0.5)
             card_y = int(card.y + 0.5)
             print(card_x, card_y, card.theta, card.scale)
+
             # Scale & rotate card image
             img_card = cv2.resize(card.img, (int(len(card.img[0]) * card.scale), int(len(card.img) * card.scale)))
             mask_scale = cv2.resize(card_mask, (int(len(card_mask[0]) * card.scale), int(len(card_mask) * card.scale)))
             img_mask = cv2.bitwise_and(img_card, mask_scale)
             img_rotate = imutils.rotate_bound(img_mask, card.theta / math.pi * 180)
-
+            
             # Calculate the position of the card image in relation to the background
             # Crop the card image if it's out of boundary
             card_w = len(img_rotate[0])
@@ -64,6 +83,13 @@ class ImageGenerator:
             # Override the background with the current card
             img_bg_crop = np.where(img_card_crop, img_card_crop, img_bg_crop)
             img_bg[bg_crop_y1:bg_crop_y2, bg_crop_x1:bg_crop_x2] = img_bg_crop
+
+            #for extracted_object in card.objects:
+            #    for pt in extracted_object.key_pts:
+            #        cv2.circle(img_bg, card.coordinate_in_generator(pt[0], pt[1]), 2, (0, 0, 255), 2)
+            #    bounding_box = card.bb_in_generator(extracted_object.key_pts)
+            #    cv2.rectangle(img_bg, bounding_box[0], bounding_box[2], (0, 255, 0), 2)
+
         cv2.imshow('Result', img_bg)
         cv2.waitKey(0)
         pass
@@ -101,7 +127,7 @@ class Card:
     """
     A class for storing required information about a card in relation to the ImageGenerator
     """
-    def __init__(self, img, card_info, objects, generator=None, x=None, y=None, theta=None, scale=None):
+    def __init__(self, img, card_info, objects, x=None, y=None, theta=None, scale=None):
         """
         :param img: image of the card
         :param card_info: details like name, mana cost, type, set, etc
@@ -115,29 +141,10 @@ class Card:
         self.img = img
         self.info = card_info
         self.objects = objects
-        self.generator = generator
         self.x = x
         self.y = y
         self.theta = theta
         self.scale = scale
-        pass
-
-    def bind_to_generator(self, generator, x=0, y=0, theta=0.0, scale=1.0):
-        """
-        Bind this card to an ImageGenerator object.
-        :param generator: generator to be bound with
-        :param x: new X-coordinate for the centre of the card
-        :param y: new Y-coordinate for the centre of the card
-        :param theta: new angle for the card
-        :param scale: new scale for the card
-        :return: none
-        """
-        self.generator = generator
-        self.x = x
-        self.y = y
-        self.theta = theta
-        self.scale = scale
-        generator.cards.append(self)
         pass
 
     def shift(self, x, y):
@@ -179,6 +186,53 @@ class Card:
         self.theta += theta
         pass
 
+    def coordinate_in_generator(self, x, y):
+        """
+        Converting coordinate within the card into the coordinate in the generator it is associated with
+        :param x: x coordinate within the card
+        :param y: y coordinate within the card
+        :return: (x, y) coordinate in the generator
+        """
+        # Relative distance in X & Y axis, if the centre of the card is at the origin (0, 0)
+        rel_x = x - len(self.img[0]) // 2
+        rel_y = y - len(self.img) // 2
+
+        # Scaling
+        rel_x *= self.scale
+        rel_y *= self.scale
+
+        # Rotation
+        rot_x = rel_x - rel_y * math.sin(self.theta) + rel_x * math.cos(self.theta)
+        rot_y = rel_y + rel_y * math.cos(self.theta) + rel_x * math.sin(self.theta)
+
+        # Negate offset
+        rot_x -= rel_x
+        rot_y -= rel_y
+
+        # Shift
+        gen_x = rot_x + self.x
+        gen_y = rot_y + self.y
+
+        return int(gen_x), int(gen_y)
+
+    def bb_in_generator(self, key_pts):
+        """
+        Convert a keypoints of bounding box in card into the coordinate in the generator
+        :param key_pts: keypoints of the bounding box
+        :return: bounding box represented by 4 points in the generator
+        """
+        x1 = -math.inf
+        x2 = math.inf
+        y1 = -math.inf
+        y2 = math.inf
+        for key_pt in key_pts:
+            coord_in_gen = self.coordinate_in_generator(key_pt[0], key_pt[1])
+            x1 = max(x1, coord_in_gen[0])
+            x2 = min(x2, coord_in_gen[0])
+            y1 = max(y1, coord_in_gen[1])
+            y2 = min(y2, coord_in_gen[1])
+        return [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
+
 
 class ExtractedObject:
     """
@@ -191,10 +245,7 @@ class ExtractedObject:
 
 def main():
     random.seed()
-
     img_bg = cv2.imread('data/frilly_0007.jpg')
-    #img = cv2.imread('data/c16-143-burgeoning.png')
-
     generator = ImageGenerator(img_bg, [], 1440, 960)
     card_pool = pd.DataFrame()
     for set_name in fetch_data.all_set_list:
@@ -204,8 +255,8 @@ def main():
         is_planeswalker = 'Planeswalker' in card_info['type_line']
         if not is_planeswalker:
             card_pool = card_pool.append(card_info)
-
-    for i in [random.randrange(0, card_pool.shape[0] - 1, 1) for _ in range(10)]:
+    a = 1
+    for i in [random.randrange(0, card_pool.shape[0] - 1, 1) for _ in range(24)]:
         card_info = card_pool.iloc[i]
         img_name = '../usb/data/png/%s/%s_%s.png' % (card_info['set'], card_info['collector_number'],
                                                      fetch_data.get_valid_filename(card_info['name']))
@@ -214,12 +265,14 @@ def main():
         if card_img is None:
             fetch_data.fetch_card_image(card_info, out_dir='../usb/data/png/%s' % card_info['set'])
             card_img = cv2.imread(img_name)
-        card = Card(card_img, card_info, None)
+        detected_object_list = generate_data.apply_bounding_box(card_img, card_info)
+        card = Card(card_img, card_info, detected_object_list)
 
-        card.bind_to_generator(generator, x=random.uniform(0, generator.width), y=random.uniform(0, generator.height),
-                               theta=0, scale=0.5)
-        card.shift([-100, 100], [-100, 100])
-        card.rotate((0, 0), [-math.pi, math.pi])
+        generator.add_card(card, x=random.uniform(200, generator.width - 200),
+                           y=random.uniform(200, generator.height - 200), theta=random.uniform(-math.pi, math.pi), scale=0.5)
+        #card.shift([-100, 100], [-100, 100])
+        #card.rotate((0, 0), [-math.pi / 4, math.pi / 4])
+        a += 1
     generator.display()
     pass
 
