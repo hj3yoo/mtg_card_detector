@@ -181,15 +181,13 @@ def apply_bounding_box(img, card_info, display=False):
 
 
 def main():
+    random.seed()
     #bg_images = load_dtd()
     #bg = Backgrounds()
     #bg.get_random(display=True)
 
     card_pool = pd.DataFrame()
-    for set_name in ['8ed', 'mrd', 'dst', '5dn', 'chk', 'bok', 'sok', '9ed', 'rav', 'gpt', 'dis', 'csp', 'tsp', 'plc',
-                     'fut', '10e', 'lrw', 'mor', 'shm', 'eve', 'ala', 'con', 'arb', 'm10', 'zen', 'wwk', 'roe', 'm11',
-                     'som', 'mbs', 'nph', 'm12', 'isd', 'dka', 'avr', 'm13', 'rtr', 'gtc', 'dgm', 'm14', 'ths', 'bng',
-                     'jou']:
+    for set_name in fetch_data.all_set_list:
         df = fetch_data.load_all_cards_text('data/csv/%s.csv' % set_name)
         for _ in range(3):
             card_info = df.iloc[random.randint(0, df.shape[0] - 1)]
