@@ -6,6 +6,7 @@ import imutils
 import pandas as pd
 import fetch_data
 import generate_data
+from shapely import geometry
 
 card_mask = cv2.imread('data/mask.png')
 
@@ -50,6 +51,7 @@ class ImageGenerator:
         Display the current state of the generator
         :return: none
         """
+        self.check_visibility()
         img_bg = cv2.resize(self.img_bg, (self.width, self.height))
 
         for card in self.cards:
@@ -84,11 +86,12 @@ class ImageGenerator:
             img_bg_crop = np.where(img_card_crop, img_card_crop, img_bg_crop)
             img_bg[bg_crop_y1:bg_crop_y2, bg_crop_x1:bg_crop_x2] = img_bg_crop
 
-            #for extracted_object in card.objects:
-            #    for pt in extracted_object.key_pts:
-            #        cv2.circle(img_bg, card.coordinate_in_generator(pt[0], pt[1]), 2, (0, 0, 255), 2)
-            #    bounding_box = card.bb_in_generator(extracted_object.key_pts)
-            #    cv2.rectangle(img_bg, bounding_box[0], bounding_box[2], (0, 255, 0), 2)
+            for ext_obj in card.objects:
+                if ext_obj.visible:
+                    for pt in ext_obj.key_pts:
+                        cv2.circle(img_bg, card.coordinate_in_generator(pt[0], pt[1]), 2, (0, 0, 255), 2)
+                    bounding_box = card.bb_in_generator(ext_obj.key_pts)
+                    cv2.rectangle(img_bg, bounding_box[0], bounding_box[2], (0, 255, 0), 2)
 
         cv2.imshow('Result', img_bg)
         cv2.waitKey(0)
@@ -114,6 +117,30 @@ class ImageGenerator:
         :return: none
         """
         pass
+
+    def check_visibility(self, visibility=0.5):
+        """
+        Check whether if extracted objects in each card are visible in the current scenario, and update their status
+        :param visibility: minimum ratio of the object's area that aren't covered by another card to be visible
+        :return: none
+        """
+        card_poly_list = [geometry.Polygon([card.coordinate_in_generator(0, 0),
+                                            card.coordinate_in_generator(0, len(card.img)),
+                                            card.coordinate_in_generator(len(card.img[0]), len(card.img)),
+                                            card.coordinate_in_generator(len(card.img[0]), 0)]) for card in self.cards]
+
+        # First card in the list is overlaid on the bottom of the card pile
+        for i in range(len(self.cards)):
+            card = self.cards[i]
+            for ext_obj in card.objects:
+                obj_poly = geometry.Polygon([card.coordinate_in_generator(pt[0], pt[1]) for pt in ext_obj.key_pts])
+                obj_area = obj_poly.area
+                # Check if the other cards are blocking this object
+                for card_poly in card_poly_list[i + 1:]:
+                    obj_poly = obj_poly.difference(card_poly)
+                visible_area = obj_poly.area
+                print("%s: %.1f visible" % (ext_obj.label, visible_area / obj_area))
+                ext_obj.visible = obj_area * visibility <= visible_area
 
     def export_training_data(self, out_dir):
         """
@@ -241,6 +268,7 @@ class ExtractedObject:
     def __init__(self, label, key_pts):
         self.label = label
         self.key_pts = key_pts
+        self.visible = False
 
 
 def main():
@@ -256,7 +284,7 @@ def main():
         if not is_planeswalker:
             card_pool = card_pool.append(card_info)
     a = 1
-    for i in [random.randrange(0, card_pool.shape[0] - 1, 1) for _ in range(24)]:
+    for i in [random.randrange(0, card_pool.shape[0] - 1, 1) for _ in range(20)]:
         card_info = card_pool.iloc[i]
         img_name = '../usb/data/png/%s/%s_%s.png' % (card_info['set'], card_info['collector_number'],
                                                      fetch_data.get_valid_filename(card_info['name']))
