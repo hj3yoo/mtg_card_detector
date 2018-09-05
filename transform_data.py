@@ -6,29 +6,53 @@ import imutils
 import pandas as pd
 import fetch_data
 import generate_data
+from shapely import geometry
+import pytesseract
 
 card_mask = cv2.imread('data/mask.png')
+
+
+def key_pts_to_yolo(key_pts, w_img, h_img):
+    """
+    Convert a list of keypoints into a yolo training format
+    :param key_pts: list of keypoints
+    :param w_img: width of the entire image
+    :param h_img: height of the entire image
+    :return: <x> <y> <width> <height>
+    """
+    x1 = min([pt[0] for pt in key_pts])
+    x2 = max([pt[0] for pt in key_pts])
+    y1 = min([pt[1] for pt in key_pts])
+    y2 = max([pt[1] for pt in key_pts])
+    x = (x2 + x1) / 2 / w_img
+    y = (y2 + y1) / 2 / h_img
+    width = (x2 - x1) / w_img
+    height = (y2 - y1) / h_img
+    return x, y, width, height
 
 
 class ImageGenerator:
     """
     A template for generating a training image.
     """
-    def __init__(self, img_bg, cards, width, height):
+    def __init__(self, img_bg, width, height, cards=None):
         """
         :param img_bg: background (textile) image
-        :param cards: list of Card objects
         :param width: width of the training image
         :param height: height of the training image
+        :param cards: list of Card objects
         """
         self.img_bg = img_bg
-        self.cards = cards
         self.img_result = None
         self.width = width
         self.height = height
+        if cards is None:
+            self.cards = []
+        else:
+            self.cards = cards
         pass
 
-    def add_card(self, card, x=0, y=0, theta=0.0, scale=1.0):
+    def add_card(self, card, x=None, y=None, theta=0.0, scale=1.0):
         """
         Add a card to this generator scenario.
         :param card: card to be added
@@ -38,6 +62,10 @@ class ImageGenerator:
         :param scale: new scale for the card
         :return: none
         """
+        if x is None:
+            x = -len(card.img[0]) / 2
+        if y is None:
+            y = -len(card.img) / 2
         self.cards.append(card)
         card.x = x
         card.y = y
@@ -45,17 +73,20 @@ class ImageGenerator:
         card.scale = scale
         pass
 
-    def display(self):
+    def render(self, visibility=0.5, display=False, debug=False):
         """
         Display the current state of the generator
         :return: none
         """
-        img_bg = cv2.resize(self.img_bg, (self.width, self.height))
+        self.check_visibility(visibility=visibility)
+        img_result = cv2.resize(self.img_bg, (self.width, self.height))
 
         for card in self.cards:
+            if card.x == 0.0 and card.y == 0.0 and card.theta == 0.0 and card.scale == 1.0:
+                continue
             card_x = int(card.x + 0.5)
             card_y = int(card.y + 0.5)
-            print(card_x, card_y, card.theta, card.scale)
+            #print(card_x, card_y, card.theta, card.scale)
 
             # Scale & rotate card image
             img_card = cv2.resize(card.img, (int(len(card.img[0]) * card.scale), int(len(card.img) * card.scale)))
@@ -68,58 +99,217 @@ class ImageGenerator:
             card_w = len(img_rotate[0])
             card_h = len(img_rotate)
             card_crop_x1 = max(0, card_w // 2 - card_x)
-            card_crop_x2 = min(card_w, card_w // 2 + len(img_bg[0]) - card_x)
+            card_crop_x2 = min(card_w, card_w // 2 + len(img_result[0]) - card_x)
             card_crop_y1 = max(0, card_h // 2 - card_y)
-            card_crop_y2 = min(card_h, card_h // 2 + len(img_bg) - card_y)
+            card_crop_y2 = min(card_h, card_h // 2 + len(img_result) - card_y)
             img_card_crop = img_rotate[card_crop_y1:card_crop_y2, card_crop_x1:card_crop_x2]
 
             # Calculate the position of the corresponding area in the background
             bg_crop_x1 = max(0, card_x - (card_w // 2))
-            bg_crop_x2 = min(len(img_bg[0]), int(card_x + (card_w / 2) + 0.5))
+            bg_crop_x2 = min(len(img_result[0]), int(card_x + (card_w / 2) + 0.5))
             bg_crop_y1 = max(0, card_y - (card_h // 2))
-            bg_crop_y2 = min(len(img_bg), int(card_y + (card_h / 2) + 0.5))
-            img_bg_crop = img_bg[bg_crop_y1:bg_crop_y2, bg_crop_x1:bg_crop_x2]
+            bg_crop_y2 = min(len(img_result), int(card_y + (card_h / 2) + 0.5))
+            img_result_crop = img_result[bg_crop_y1:bg_crop_y2, bg_crop_x1:bg_crop_x2]
 
             # Override the background with the current card
-            img_bg_crop = np.where(img_card_crop, img_card_crop, img_bg_crop)
-            img_bg[bg_crop_y1:bg_crop_y2, bg_crop_x1:bg_crop_x2] = img_bg_crop
+            img_result_crop = np.where(img_card_crop, img_card_crop, img_result_crop)
+            img_result[bg_crop_y1:bg_crop_y2, bg_crop_x1:bg_crop_x2] = img_result_crop
+            
+            if debug:
+                for ext_obj in card.objects:
+                    if ext_obj.visible:
+                        for pt in ext_obj.key_pts:
+                            cv2.circle(img_result, card.coordinate_in_generator(pt[0], pt[1]), 2, (0, 0, 255), 2)
+                        bounding_box = card.bb_in_generator(ext_obj.key_pts)
+                        cv2.rectangle(img_result, bounding_box[0], bounding_box[2], (0, 255, 0), 2)
+        '''
+        try:
+            text = pytesseract.image_to_string(img_result, output_type=pytesseract.Output.DICT)
+            print(text)
+        except pytesseract.pytesseract.TesseractError:
+            pass
+        '''
+        img_result = cv2.GaussianBlur(img_result, (5, 5), 0)
 
-            #for extracted_object in card.objects:
-            #    for pt in extracted_object.key_pts:
-            #        cv2.circle(img_bg, card.coordinate_in_generator(pt[0], pt[1]), 2, (0, 0, 255), 2)
-            #    bounding_box = card.bb_in_generator(extracted_object.key_pts)
-            #    cv2.rectangle(img_bg, bounding_box[0], bounding_box[2], (0, 255, 0), 2)
+        if display:
+            cv2.imshow('Result', img_result)
+            cv2.waitKey(0)
 
-        cv2.imshow('Result', img_bg)
-        cv2.waitKey(0)
+        self.img_result = img_result
         pass
 
-    def generate_horizontal_span(self):
+    def generate_horizontal_span(self, gap=None, scale=None, shift=None, jitter=None):
         """
         Generating the first scenario where the cards are laid out in a straight horizontal line
-        :return: none
+        :return: True if successfully generated, otherwise False
         """
-        pass
+        # Set scale of the cards, variance of shift & jitter to be applied if they're not given
+        card_size = (len(self.cards[0].img[0]), len(self.cards[0].img))
+        if scale is None:
+            # Scale the cards so that card takes about 50% of the image's height
+            coverage_ratio = 0.5
+            scale = self.height * coverage_ratio / card_size[1]
+        if shift is None:
+            # Plus minus 5% of the card's height
+            shift = [-card_size[1] * scale * 0.05, card_size[1] * scale * 0.05]
+            pass
+        if jitter is None:
+            jitter = [-math.pi / 18, math.pi / 18]  # Plus minus 10 degrees
+        if gap is None:
+            # 25% of the card's width - set symbol and 1-2 mana symbols will be visible on each card
+            gap = card_size[0] * scale * 0.4
 
-    def generate_vertical_span(self):
+        # Determine the location of the first card
+        # The cards will cover (width of a card + (# of cards - 1) * gap) pixels wide and (height of a card) pixels high
+        x_anchor = int(self.width / 2 + (len(self.cards) - 1) * gap / 2)
+        y_anchor = self.height // 2
+        for card in self.cards:
+            card.scale = scale
+            card.x = x_anchor
+            card.y = y_anchor
+            card.theta = 0
+            card.shift(shift, shift)
+            card.rotate(jitter)
+            x_anchor -= gap
+        return True
+
+    def generate_vertical_span(self, gap=None, scale=None, shift=None, jitter=None):
         """
         Generating the second scenario where the cards are laid out in a straight vertical line
-        :return: none
+        :return: True if successfully generated, otherwise False
         """
-        pass
+        # Set scale of the cards, variance of shift & jitter to be applied if they're not given
+        card_size = (len(self.cards[0].img[0]), len(self.cards[0].img))
+        if scale is None:
+            # Scale the cards so that card takes about 50% of the image's height
+            coverage_ratio = 0.5
+            scale = self.height * coverage_ratio / card_size[1]
+        if shift is None:
+            # Plus minus 5% of the card's height
+            shift = [-card_size[1] * scale * 0.05, card_size[1] * scale * 0.05]
+            pass
+        if jitter is None:
+            # Plus minus 5 degrees
+            jitter = [-math.pi / 36, math.pi / 36]
+        if gap is None:
+            # 15% of the card's height - the title bar (with mana symbols) will be visible
+            gap = card_size[1] * scale * 0.25
 
-    def generate_fan_out(self):
+        # Determine the location of the first card
+        # The cards will cover (width of a card) pixels wide and (height of a card + (# of cards - 1) * gap) pixels high
+        x_anchor = self.width // 2
+        y_anchor = int(self.height / 2 - (len(self.cards) - 1) * gap / 2)
+        for card in self.cards:
+            card.scale = scale
+            card.x = x_anchor
+            card.y = y_anchor
+            card.theta = 0
+            card.shift(shift, shift)
+            card.rotate(jitter)
+            y_anchor += gap
+        return True
+
+    def generate_fan_out(self, centre, theta_between_cards=None, scale=None, shift=None, jitter=None):
         """
         Generating the third scenario where the cards are laid out in a fan shape
+        :return: True if successfully generated, otherwise False
+        """
+        return False
+
+    def generate_non_obstructive(self, tolerance=0.90, scale=None):
+        """
+        Generating the fourth scenario where the cards are laid in arbitrary position that doesn't obstruct other cards
+        :param tolerance: minimum level of visibility for each cards
+        :return: True if successfully generated, otherwise False
+        """
+        card_size = (len(self.cards[0].img[0]), len(self.cards[0].img))
+        if scale is None:
+            # Total area of the cards should cover about 25-40% of the entire image, depending on the number of cards
+            scale = math.sqrt(self.width * self.height * min(0.25 + 0.02 * len(self.cards), 0.4)
+                              / (card_size[0] * card_size[1] * len(self.cards)))
+        # Position each card at random location that doesn't obstruct other cards
+        i = 0
+        while i < len(self.cards):
+        #for i in range(len(self.cards)):
+            card = self.cards[i]
+            card.scale = scale
+            rep = 0
+            while True:
+                card.x = random.uniform(card_size[1] * scale / 2, self.width - card_size[1] * scale)
+                card.y = random.uniform(card_size[1] * scale / 2, self.height - card_size[1] * scale)
+                card.theta = random.uniform(-math.pi, math.pi)
+                self.check_visibility(self.cards[:i + 1], visibility=tolerance)
+                # This position is not obstructive if all of the cards are visible
+                is_visible = [other_card.objects[0].visible for other_card in self.cards[:i + 1]]
+                non_obstructive = all(is_visible)
+                if non_obstructive:
+                    i += 1
+                    break
+                rep += 1
+                if rep >= 1000:
+                    # Reassign previous card's position
+                    i -= 1
+                    break
+        return True
+
+    def check_visibility(self, cards=None, i_check=None, visibility=0.5):
+        """
+        Check whether if extracted objects in each card are visible in the current scenario, and update their status
+        :param cards: list of cards (in a correct order)
+        :param i_check: indices of cards that needs to be checked. Cards that aren't in this list will only be used
+        to check visibility of other cards. All cards are checked by default.
+        :param visibility: minimum ratio of the object's area that aren't covered by another card to be visible
         :return: none
         """
-        pass
+        if cards is None:
+            cards = self.cards
+        if i_check is None:
+            i_check = range(len(cards))
+        card_poly_list = [geometry.Polygon([card.coordinate_in_generator(0, 0),
+                                            card.coordinate_in_generator(0, len(card.img)),
+                                            card.coordinate_in_generator(len(card.img[0]), len(card.img)),
+                                            card.coordinate_in_generator(len(card.img[0]), 0)]) for card in self.cards]
+        template_poly = geometry.Polygon([(0, 0), (self.width, 0), (self.width, self.height), (0, self.height)])
 
-    def export_training_data(self, out_dir):
+        # First card in the list is overlaid on the bottom of the card pile
+        for i in i_check:
+            card = cards[i]
+            for ext_obj in card.objects:
+                obj_poly = geometry.Polygon([card.coordinate_in_generator(pt[0], pt[1]) for pt in ext_obj.key_pts])
+                obj_area = obj_poly.area
+                # Check if the other cards are blocking this object or if it's out of the template
+                for card_poly in card_poly_list[i + 1:]:
+                    obj_poly = obj_poly.difference(card_poly)
+                obj_poly = obj_poly.intersection(template_poly)
+                visible_area = obj_poly.area
+                #print(visible_area, obj_area, len(card.img[0]) * len(card.img) * card.scale * card.scale)
+                #print("%s: %.1f visible" % (ext_obj.label, visible_area / obj_area * 100))
+                ext_obj.visible = obj_area * visibility <= visible_area
+
+    def export_training_data(self, out_name, visibility=0.5):
         """
         Export the generated training image along with the txt file for all bounding boxes
         :return: none
         """
+        self.render(visibility)
+        cv2.imwrite(out_name + '.jpg', self.img_result)
+        out_txt = open(out_name+ '.txt', 'w')
+        for card in self.cards:
+            for ext_obj in card.objects:
+                if not ext_obj.visible:
+                    continue
+                coords_in_gen = [card.coordinate_in_generator(key_pt[0], key_pt[1]) for key_pt in ext_obj.key_pts]
+                obj_yolo_info = key_pts_to_yolo(coords_in_gen, self.width, self.height)
+                if ext_obj.label == 'card':
+                    out_txt.write('0 %.6f %.6f %.6f %.6f\n' % obj_yolo_info)
+                    pass
+                elif ext_obj.label[:ext_obj.label.find[':']] == 'mana_symbol':
+                    # TODO
+                    pass
+                elif ext_obj.label[:ext_obj.label.find[':']] == 'set_symbol':
+                    # TODO
+                    pass
+        out_txt.close()
         pass
 
 
@@ -164,24 +354,27 @@ class Card:
             self.y += y
         pass
 
-    def rotate(self, centre, theta=None):
+    def rotate(self, theta, centre=(0, 0)):
         """
         Apply a rotation on this image with a centre
-        :param centre: coordinate of the centre of the rotation in relation to the centre of this card
         :param theta: amount of rotation in radian (clockwise). If a range is given, rotate by a random amount within
+        :param centre: coordinate of the centre of the rotation in relation to the centre of this card
         that range
         :return: none
         """
         if isinstance(theta, tuple) or (isinstance(theta, list) and len(theta) == 2):
             theta = random.uniform(theta[0], theta[1])
 
-        # Rotation math
-        self.x -= -centre[1] * math.sin(theta) + centre[0] * math.cos(theta)
-        self.y -= centre[1] * math.cos(theta) + centre[0] * math.sin(theta)
+        # If the centre given is the centre of this card, the whole math simplifies a bit
+        # (This still works without the if statement, but let's not do useless trigs if we know the answer already)
+        if centre is not (0, 0):
+            # Rotation math
+            self.x -= -centre[1] * math.sin(theta) + centre[0] * math.cos(theta)
+            self.y -= centre[1] * math.cos(theta) + centre[0] * math.sin(theta)
 
-        # Offset for the coordinate translation
-        self.x += centre[0]
-        self.y += centre[1]
+            # Offset for the coordinate translation
+            self.x += centre[0]
+            self.y += centre[1]
 
         self.theta += theta
         pass
@@ -221,6 +414,12 @@ class Card:
         :param key_pts: keypoints of the bounding box
         :return: bounding box represented by 4 points in the generator
         """
+        coords_in_gen = [self.coordinate_in_generator(key_pt[0], key_pt[1]) for key_pt in key_pts]
+        x1 = min([pt[0] for pt in coords_in_gen])
+        x2 = max([pt[0] for pt in coords_in_gen])
+        y1 = min([pt[1] for pt in coords_in_gen])
+        y2 = max([pt[1] for pt in coords_in_gen])
+        '''
         x1 = -math.inf
         x2 = math.inf
         y1 = -math.inf
@@ -231,6 +430,7 @@ class Card:
             x2 = min(x2, coord_in_gen[0])
             y1 = max(y1, coord_in_gen[1])
             y2 = min(y2, coord_in_gen[1])
+        '''
         return [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
 
 
@@ -241,12 +441,48 @@ class ExtractedObject:
     def __init__(self, label, key_pts):
         self.label = label
         self.key_pts = key_pts
+        self.visible = False
 
 
 def main():
     random.seed()
-    img_bg = cv2.imread('data/frilly_0007.jpg')
-    generator = ImageGenerator(img_bg, [], 1440, 960)
+
+    bg_images = generate_data.load_dtd(dump_it=False)
+    background = generate_data.Backgrounds(images=bg_images)
+    card_pool = pd.DataFrame()
+    for set_name in fetch_data.all_set_list:
+        df = fetch_data.load_all_cards_text('data/csv/%s.csv' % set_name)
+        card_pool = card_pool.append(df)
+
+    num_gen = 25600
+    num_iter = 3
+
+    for i in range(num_gen):
+        generator = ImageGenerator(background.get_random(), 1440, 960)
+        out_name = 'data/train/non_obstructive/'
+        for _, card_info in card_pool.sample(random.randint(2, 5)).iterrows():
+            img_name = '../usb/data/png/%s/%s_%s.png' % (card_info['set'], card_info['collector_number'],
+                                                         fetch_data.get_valid_filename(card_info['name']))
+            out_name += '%s%s_' % (card_info['set'], card_info['collector_number'])
+            card_img = cv2.imread(img_name)
+            if card_img is None:
+                fetch_data.fetch_card_image(card_info, out_dir='../usb/data/png/%s' % card_info['set'])
+                card_img = cv2.imread(img_name)
+            if card_img is None:
+                print('WARNING: card %s is not found!' % img_name)
+            detected_object_list = generate_data.apply_bounding_box(card_img, card_info)
+            card = Card(card_img, card_info, detected_object_list)
+            generator.add_card(card)
+        for j in range(num_iter):
+            generator.generate_non_obstructive()
+            #generator.generate_horizontal_span()
+            generator.export_training_data(visibility=0.0, out_name=out_name + str(j))
+            print('Generated %s%d' % (out_name, j))
+            generator.img_bg = background.get_random()
+
+    '''
+    #img_bg = cv2.imread('data/frilly_0007.jpg')
+    #generator = ImageGenerator(img_bg, 1440, 960)
     card_pool = pd.DataFrame()
     for set_name in fetch_data.all_set_list:
         df = fetch_data.load_all_cards_text('data/csv/%s.csv' % set_name)
@@ -255,8 +491,7 @@ def main():
         is_planeswalker = 'Planeswalker' in card_info['type_line']
         if not is_planeswalker:
             card_pool = card_pool.append(card_info)
-    a = 1
-    for i in [random.randrange(0, card_pool.shape[0] - 1, 1) for _ in range(24)]:
+    for i in [random.randrange(0, card_pool.shape[0] - 1, 1) for _ in range(4)]:
         card_info = card_pool.iloc[i]
         img_name = '../usb/data/png/%s/%s_%s.png' % (card_info['set'], card_info['collector_number'],
                                                      fetch_data.get_valid_filename(card_info['name']))
@@ -268,12 +503,22 @@ def main():
         detected_object_list = generate_data.apply_bounding_box(card_img, card_info)
         card = Card(card_img, card_info, detected_object_list)
 
-        generator.add_card(card, x=random.uniform(200, generator.width - 200),
-                           y=random.uniform(200, generator.height - 200), theta=random.uniform(-math.pi, math.pi), scale=0.5)
+        generator.add_card(card)
+        #generator.add_card(card, x=random.uniform(200, generator.width - 200),
+        #                   y=random.uniform(200, generator.height - 200), theta=random.uniform(-math.pi, math.pi), scale=0.5)
         #card.shift([-100, 100], [-100, 100])
         #card.rotate((0, 0), [-math.pi / 4, math.pi / 4])
-        a += 1
-    generator.display()
+    import time
+
+    for i in range(100):
+        generator.generate_vertical_span()
+        generator.render(debug=False)
+        generator.export_training_data(out_name='data/test')
+    #generator.generate_horizontal_span()
+    #generator.render(debug=True)
+    #generator.generate_vertical_span()
+    #generator.render(debug=True)
+    '''
     pass
 
 

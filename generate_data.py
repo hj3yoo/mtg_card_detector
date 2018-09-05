@@ -67,6 +67,7 @@ def apply_bounding_box(img, card_info, display=False):
     # List of detected objects to be fed into the neural net
     # The first object is the entire card
     detected_object_list = [ExtractedObject('card', [(0, 0), (len(img[0]), 0), (len(img[0]), len(img)), (0, len(img))])]
+    '''
     # Mana symbol - They are located on the top right side of the card, next to the name
     # Their position is stationary, and is right-aligned.
     has_mana_cost = isinstance(card_info['mana_cost'], str)  # Cards with no mana cost will have nan
@@ -177,6 +178,7 @@ def apply_bounding_box(img, card_info, display=False):
 
     # Image box - the large image on the top half of the card
     # TODO
+    '''
     return detected_object_list
 
 
@@ -189,12 +191,25 @@ def main():
     card_pool = pd.DataFrame()
     for set_name in fetch_data.all_set_list:
         df = fetch_data.load_all_cards_text('data/csv/%s.csv' % set_name)
-        for _ in range(3):
-            card_info = df.iloc[random.randint(0, df.shape[0] - 1)]
-            # Currently ignoring planeswalker cards due to their different card layout
-            is_planeswalker = 'Planeswalker' in card_info['type_line']
-            if not is_planeswalker:
-                card_pool = card_pool.append(card_info)
+        #for _ in range(3):
+        #    card_info = df.iloc[random.randint(0, df.shape[0] - 1)]
+        #    # Currently ignoring planeswalker cards due to their different card layout
+        #    is_planeswalker = 'Planeswalker' in card_info['type_line']
+        #    if not is_planeswalker:
+        #        card_pool = card_pool.append(card_info)
+        card_pool = card_pool.append(df)
+    '''
+    print(card_pool)
+    mana_symbol_set = set()
+    for _, card_info in card_pool.iterrows():
+        has_mana_cost = isinstance(card_info['mana_cost'], str)
+        if has_mana_cost:
+            mana_cost = re.findall('\{(.*?)\}', card_info['mana_cost'])
+            for symbol in mana_cost:
+                mana_symbol_set.add(symbol)
+
+    print(mana_symbol_set)
+    '''
 
     for _, card_info in card_pool.iterrows():
         img_name = '../usb/data/png/%s/%s_%s.png' % (card_info['set'], card_info['collector_number'],
@@ -206,6 +221,7 @@ def main():
             card_img = cv2.imread(img_name)
         detected_object_list = apply_bounding_box(card_img, card_info, display=True)
         print(detected_object_list)
+
     return
 
 
