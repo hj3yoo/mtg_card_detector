@@ -35,18 +35,21 @@ class ImageGenerator:
     """
     A template for generating a training image.
     """
-    def __init__(self, img_bg, cards, width, height):
+    def __init__(self, img_bg, width, height, cards=None):
         """
         :param img_bg: background (textile) image
-        :param cards: list of Card objects
         :param width: width of the training image
         :param height: height of the training image
+        :param cards: list of Card objects
         """
         self.img_bg = img_bg
-        self.cards = cards
         self.img_result = None
         self.width = width
         self.height = height
+        if cards is None:
+            self.cards = []
+        else:
+            self.cards = cards
         pass
 
     def add_card(self, card, x=None, y=None, theta=0.0, scale=1.0):
@@ -70,12 +73,12 @@ class ImageGenerator:
         card.scale = scale
         pass
 
-    def display(self, debug=False):
+    def render(self, visibility=0.5, display=False, debug=False):
         """
         Display the current state of the generator
         :return: none
         """
-        self.check_visibility()
+        self.check_visibility(visibility=visibility)
         img_result = cv2.resize(self.img_bg, (self.width, self.height))
 
         for card in self.cards:
@@ -83,7 +86,7 @@ class ImageGenerator:
                 continue
             card_x = int(card.x + 0.5)
             card_y = int(card.y + 0.5)
-            print(card_x, card_y, card.theta, card.scale)
+            #print(card_x, card_y, card.theta, card.scale)
 
             # Scale & rotate card image
             img_card = cv2.resize(card.img, (int(len(card.img[0]) * card.scale), int(len(card.img) * card.scale)))
@@ -119,22 +122,26 @@ class ImageGenerator:
                             cv2.circle(img_result, card.coordinate_in_generator(pt[0], pt[1]), 2, (0, 0, 255), 2)
                         bounding_box = card.bb_in_generator(ext_obj.key_pts)
                         cv2.rectangle(img_result, bounding_box[0], bounding_box[2], (0, 255, 0), 2)
-
+        '''
         try:
             text = pytesseract.image_to_string(img_result, output_type=pytesseract.Output.DICT)
             print(text)
         except pytesseract.pytesseract.TesseractError:
             pass
+        '''
         img_result = cv2.GaussianBlur(img_result, (5, 5), 0)
-        cv2.imshow('Result', img_result)
-        cv2.waitKey(0)
+
+        if display:
+            cv2.imshow('Result', img_result)
+            cv2.waitKey(0)
+
         self.img_result = img_result
         pass
 
     def generate_horizontal_span(self, gap=None, scale=None, shift=None, jitter=None):
         """
         Generating the first scenario where the cards are laid out in a straight horizontal line
-        :return: none
+        :return: True if successfully generated, otherwise False
         """
         # Set scale of the cards, variance of shift & jitter to be applied if they're not given
         card_size = (len(self.cards[0].img[0]), len(self.cards[0].img))
@@ -150,7 +157,7 @@ class ImageGenerator:
             jitter = [-math.pi / 18, math.pi / 18]  # Plus minus 10 degrees
         if gap is None:
             # 25% of the card's width - set symbol and 1-2 mana symbols will be visible on each card
-            gap = card_size[0] * scale * 0.25
+            gap = card_size[0] * scale * 0.4
 
         # Determine the location of the first card
         # The cards will cover (width of a card + (# of cards - 1) * gap) pixels wide and (height of a card) pixels high
@@ -164,12 +171,12 @@ class ImageGenerator:
             card.shift(shift, shift)
             card.rotate(jitter)
             x_anchor -= gap
-        pass
+        return True
 
     def generate_vertical_span(self, gap=None, scale=None, shift=None, jitter=None):
         """
         Generating the second scenario where the cards are laid out in a straight vertical line
-        :return: none
+        :return: True if successfully generated, otherwise False
         """
         # Set scale of the cards, variance of shift & jitter to be applied if they're not given
         card_size = (len(self.cards[0].img[0]), len(self.cards[0].img))
@@ -186,7 +193,7 @@ class ImageGenerator:
             jitter = [-math.pi / 36, math.pi / 36]
         if gap is None:
             # 15% of the card's height - the title bar (with mana symbols) will be visible
-            gap = card_size[1] * scale * 0.15
+            gap = card_size[1] * scale * 0.25
 
         # Determine the location of the first card
         # The cards will cover (width of a card) pixels wide and (height of a card + (# of cards - 1) * gap) pixels high
@@ -200,22 +207,20 @@ class ImageGenerator:
             card.shift(shift, shift)
             card.rotate(jitter)
             y_anchor += gap
-        pass
-
-        pass
+        return True
 
     def generate_fan_out(self, centre, theta_between_cards=None, scale=None, shift=None, jitter=None):
         """
         Generating the third scenario where the cards are laid out in a fan shape
-        :return: none
+        :return: True if successfully generated, otherwise False
         """
-        pass
+        return False
 
-    def generate_non_obstructive(self, tolerance=0.85, scale=None):
+    def generate_non_obstructive(self, tolerance=0.90, scale=None):
         """
         Generating the fourth scenario where the cards are laid in arbitrary position that doesn't obstruct other cards
         :param tolerance: minimum level of visibility for each cards
-        :return:
+        :return: True if successfully generated, otherwise False
         """
         card_size = (len(self.cards[0].img[0]), len(self.cards[0].img))
         if scale is None:
@@ -223,9 +228,12 @@ class ImageGenerator:
             scale = math.sqrt(self.width * self.height * min(0.25 + 0.02 * len(self.cards), 0.4)
                               / (card_size[0] * card_size[1] * len(self.cards)))
         # Position each card at random location that doesn't obstruct other cards
-        for i in range(len(self.cards)):
+        i = 0
+        while i < len(self.cards):
+        #for i in range(len(self.cards)):
             card = self.cards[i]
             card.scale = scale
+            rep = 0
             while True:
                 card.x = random.uniform(card_size[1] * scale / 2, self.width - card_size[1] * scale)
                 card.y = random.uniform(card_size[1] * scale / 2, self.height - card_size[1] * scale)
@@ -235,7 +243,14 @@ class ImageGenerator:
                 is_visible = [other_card.objects[0].visible for other_card in self.cards[:i + 1]]
                 non_obstructive = all(is_visible)
                 if non_obstructive:
+                    i += 1
                     break
+                rep += 1
+                if rep >= 1000:
+                    # Reassign previous card's position
+                    i -= 1
+                    break
+        return True
 
     def check_visibility(self, cards=None, i_check=None, visibility=0.5):
         """
@@ -271,11 +286,12 @@ class ImageGenerator:
                 #print("%s: %.1f visible" % (ext_obj.label, visible_area / obj_area * 100))
                 ext_obj.visible = obj_area * visibility <= visible_area
 
-    def export_training_data(self, out_name):
+    def export_training_data(self, out_name, visibility=0.5):
         """
         Export the generated training image along with the txt file for all bounding boxes
         :return: none
         """
+        self.render(visibility)
         cv2.imwrite(out_name + '.jpg', self.img_result)
         out_txt = open(out_name+ '.txt', 'w')
         for card in self.cards:
@@ -430,8 +446,43 @@ class ExtractedObject:
 
 def main():
     random.seed()
-    img_bg = cv2.imread('data/frilly_0007.jpg')
-    generator = ImageGenerator(img_bg, [], 1440, 960)
+
+    bg_images = generate_data.load_dtd(dump_it=False)
+    background = generate_data.Backgrounds(images=bg_images)
+    card_pool = pd.DataFrame()
+    for set_name in fetch_data.all_set_list:
+        df = fetch_data.load_all_cards_text('data/csv/%s.csv' % set_name)
+        card_pool = card_pool.append(df)
+
+    num_gen = 25600
+    num_iter = 3
+
+    for i in range(num_gen):
+        generator = ImageGenerator(background.get_random(), 1440, 960)
+        out_name = 'data/train/non_obstructive/'
+        for _, card_info in card_pool.sample(random.randint(2, 5)).iterrows():
+            img_name = '../usb/data/png/%s/%s_%s.png' % (card_info['set'], card_info['collector_number'],
+                                                         fetch_data.get_valid_filename(card_info['name']))
+            out_name += '%s%s_' % (card_info['set'], card_info['collector_number'])
+            card_img = cv2.imread(img_name)
+            if card_img is None:
+                fetch_data.fetch_card_image(card_info, out_dir='../usb/data/png/%s' % card_info['set'])
+                card_img = cv2.imread(img_name)
+            if card_img is None:
+                print('WARNING: card %s is not found!' % img_name)
+            detected_object_list = generate_data.apply_bounding_box(card_img, card_info)
+            card = Card(card_img, card_info, detected_object_list)
+            generator.add_card(card)
+        for j in range(num_iter):
+            generator.generate_non_obstructive()
+            #generator.generate_horizontal_span()
+            generator.export_training_data(visibility=0.0, out_name=out_name + str(j))
+            print('Generated %s%d' % (out_name, j))
+            generator.img_bg = background.get_random()
+
+    '''
+    #img_bg = cv2.imread('data/frilly_0007.jpg')
+    #generator = ImageGenerator(img_bg, 1440, 960)
     card_pool = pd.DataFrame()
     for set_name in fetch_data.all_set_list:
         df = fetch_data.load_all_cards_text('data/csv/%s.csv' % set_name)
@@ -461,12 +512,13 @@ def main():
 
     for i in range(100):
         generator.generate_vertical_span()
-        generator.display(debug=False)
+        generator.render(debug=False)
         generator.export_training_data(out_name='data/test')
     #generator.generate_horizontal_span()
-    #generator.display(debug=True)
+    #generator.render(debug=True)
     #generator.generate_vertical_span()
-    #generator.display(debug=True)
+    #generator.render(debug=True)
+    '''
     pass
 
 
