@@ -1,0 +1,6 @@
+/home/edmond/Desktop/MTGCardDetector/data/train/non_obstructive/zen99_sok153_1.txt Wrong annotation: class_id = 73. But class_id should be [from 0 to 1]
+/home/edmond/Desktop/MTGCardDetector/data/train/non_obstructive/mrd251_gtc182_bok20_tsp201_ths162_2.txt Wrong annotation: class_id = 73. But class_id should be [from 0 to 1]
+/home/edmond/Desktop/MTGCardDetector/data/train/non_obstructive/mrd251_gtc182_bok20_tsp201_ths162_2.txt Wrong annotation: class_id = 59. But class_id should be [from 0 to 1]
+/home/edmond/Desktop/MTGCardDetector/data/train/non_obstructive/mrd251_gtc182_bok20_tsp201_ths162_2.txt Wrong annotation: class_id = 59. But class_id should be [from 0 to 1]
+/home/edmond/Desktop/MTGCardDetector/data/train/non_obstructive/zen99_sok153_1.txt Wrong annotation: class_id = 73. But class_id should be [from 0 to 1]
+/home/edmond/Desktop/MTGCardDetector/data/train/non_obstructive/zen99_sok153_1.txt Wrong annotation: class_id = 73. But class_id should be [from 0 to 1]
