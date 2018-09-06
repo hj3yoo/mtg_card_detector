@@ -1,3 +1,4 @@
+import os
 import random
 import math
 import cv2
@@ -8,8 +9,13 @@ import fetch_data
 import generate_data
 from shapely import geometry
 import pytesseract
+import imgaug as ia
+from imgaug import augmenters as iaa
+from imgaug import parameters as iap
 
 card_mask = cv2.imread('data/mask.png')
+data_dir = os.path.abspath('/media/edmond/My Passport/data')
+darknet_dir = os.path.abspath('darknet')
 
 
 def key_pts_to_yolo(key_pts, w_img, h_img):
@@ -73,7 +79,7 @@ class ImageGenerator:
         card.scale = scale
         pass
 
-    def render(self, visibility=0.5, display=False, debug=False):
+    def render(self, visibility=0.5, display=False, debug=False, aug=None):
         """
         Display the current state of the generator
         :return: none
@@ -131,6 +137,9 @@ class ImageGenerator:
         '''
         img_result = cv2.GaussianBlur(img_result, (5, 5), 0)
 
+        if aug is not None:
+            img_result = aug.augment_image(img_result)
+
         if display:
             cv2.imshow('Result', img_result)
             cv2.waitKey(0)
@@ -138,7 +147,7 @@ class ImageGenerator:
         self.img_result = img_result
         pass
 
-    def generate_horizontal_span(self, gap=None, scale=None, shift=None, jitter=None):
+    def generate_horizontal_span(self, gap=None, scale=None, theta=0, shift=None, jitter=None):
         """
         Generating the first scenario where the cards are laid out in a straight horizontal line
         :return: True if successfully generated, otherwise False
@@ -170,10 +179,12 @@ class ImageGenerator:
             card.theta = 0
             card.shift(shift, shift)
             card.rotate(jitter)
+            card.rotate(theta, centre=(self.width // 2 - x_anchor, self.height // 2 - y_anchor))
             x_anchor -= gap
+
         return True
 
-    def generate_vertical_span(self, gap=None, scale=None, shift=None, jitter=None):
+    def generate_vertical_span(self, gap=None, scale=None, theta=0, shift=None, jitter=None):
         """
         Generating the second scenario where the cards are laid out in a straight vertical line
         :return: True if successfully generated, otherwise False
@@ -206,6 +217,7 @@ class ImageGenerator:
             card.theta = 0
             card.shift(shift, shift)
             card.rotate(jitter)
+            card.rotate(theta, centre=(self.width // 2 - x_anchor, self.height // 2 - y_anchor))
             y_anchor += gap
         return True
 
@@ -286,12 +298,12 @@ class ImageGenerator:
                 #print("%s: %.1f visible" % (ext_obj.label, visible_area / obj_area * 100))
                 ext_obj.visible = obj_area * visibility <= visible_area
 
-    def export_training_data(self, out_name, visibility=0.5):
+    def export_training_data(self, out_name, visibility=0.5, aug=None):
         """
         Export the generated training image along with the txt file for all bounding boxes
         :return: none
         """
-        self.render(visibility)
+        self.render(visibility, aug=aug)
         cv2.imwrite(out_name + '.jpg', self.img_result)
         out_txt = open(out_name+ '.txt', 'w')
         for card in self.cards:
@@ -446,27 +458,29 @@ class ExtractedObject:
 
 def main():
     random.seed()
+    ia.seed(random.randrange(10000))
 
-    bg_images = generate_data.load_dtd(dump_it=False)
+    bg_images = generate_data.load_dtd(dtd_dir='%s/dtd/images' % data_dir, dump_it=False)
     background = generate_data.Backgrounds(images=bg_images)
+
     card_pool = pd.DataFrame()
     for set_name in fetch_data.all_set_list:
-        df = fetch_data.load_all_cards_text('data/csv/%s.csv' % set_name)
+        df = fetch_data.load_all_cards_text('%s/csv/%s.csv' % (data_dir, set_name))
         card_pool = card_pool.append(df)
 
-    num_gen = 25600
-    num_iter = 3
+    num_gen = 60000
+    num_iter = 1
 
     for i in range(num_gen):
         generator = ImageGenerator(background.get_random(), 1440, 960)
-        out_name = 'data/train/non_obstructive/'
+        out_name = ''
         for _, card_info in card_pool.sample(random.randint(2, 5)).iterrows():
-            img_name = '../usb/data/png/%s/%s_%s.png' % (card_info['set'], card_info['collector_number'],
+            img_name = '%s/card_img/png/%s/%s_%s.png' % (data_dir, card_info['set'], card_info['collector_number'],
                                                          fetch_data.get_valid_filename(card_info['name']))
             out_name += '%s%s_' % (card_info['set'], card_info['collector_number'])
             card_img = cv2.imread(img_name)
             if card_img is None:
-                fetch_data.fetch_card_image(card_info, out_dir='../usb/data/png/%s' % card_info['set'])
+                fetch_data.fetch_card_image(card_info, out_dir='%s/card_img/png/%s' % (data_dir, card_info['set']))
                 card_img = cv2.imread(img_name)
             if card_img is None:
                 print('WARNING: card %s is not found!' % img_name)
@@ -474,51 +488,27 @@ def main():
             card = Card(card_img, card_info, detected_object_list)
             generator.add_card(card)
         for j in range(num_iter):
-            generator.generate_non_obstructive()
-            #generator.generate_horizontal_span()
-            generator.export_training_data(visibility=0.0, out_name=out_name + str(j))
+            seq = iaa.Sequential([
+                iaa.Multiply((0.8, 1.2)),  # darken / brighten the whole image
+                iaa.SimplexNoiseAlpha(first=iaa.Add(random.randrange(64)), per_channel=0.1, size_px_max=[3, 6],
+                                      upscale_method="cubic"),  # Lighting
+                iaa.AdditiveGaussianNoise(scale=random.uniform(0.005, 0.05) * 255, per_channel=0.1),  # Noises
+                iaa.Dropout(p=[0.005, 0.05], per_channel=0.1)
+            ])
+            if i % 3 == 0:
+                generator.generate_non_obstructive()
+                generator.export_training_data(visibility=0.0, out_name='%s/train/non_obstructive/%s_%d'
+                                                                        % (data_dir, out_name, j), aug=seq)
+            elif i % 3 == 1:
+                generator.generate_horizontal_span(theta=random.uniform(-math.pi, math.pi))
+                generator.export_training_data(visibility=0.0, out_name='%s/train/horizontal_span/%s_%d'
+                                                                        % (data_dir, out_name, j), aug=seq)
+            else:
+                generator.generate_vertical_span(theta=random.uniform(-math.pi, math.pi))
+                generator.export_training_data(visibility=0.0, out_name='%s/train/vertical_span/%s_%d'
+                                                                        % (data_dir, out_name, j), aug=seq)
             print('Generated %s%d' % (out_name, j))
             generator.img_bg = background.get_random()
-
-    '''
-    #img_bg = cv2.imread('data/frilly_0007.jpg')
-    #generator = ImageGenerator(img_bg, 1440, 960)
-    card_pool = pd.DataFrame()
-    for set_name in fetch_data.all_set_list:
-        df = fetch_data.load_all_cards_text('data/csv/%s.csv' % set_name)
-        card_info = df.iloc[random.randint(0, df.shape[0] - 1)]
-        # Currently ignoring planeswalker cards due to their different card layout
-        is_planeswalker = 'Planeswalker' in card_info['type_line']
-        if not is_planeswalker:
-            card_pool = card_pool.append(card_info)
-    for i in [random.randrange(0, card_pool.shape[0] - 1, 1) for _ in range(4)]:
-        card_info = card_pool.iloc[i]
-        img_name = '../usb/data/png/%s/%s_%s.png' % (card_info['set'], card_info['collector_number'],
-                                                     fetch_data.get_valid_filename(card_info['name']))
-        print(img_name)
-        card_img = cv2.imread(img_name)
-        if card_img is None:
-            fetch_data.fetch_card_image(card_info, out_dir='../usb/data/png/%s' % card_info['set'])
-            card_img = cv2.imread(img_name)
-        detected_object_list = generate_data.apply_bounding_box(card_img, card_info)
-        card = Card(card_img, card_info, detected_object_list)
-
-        generator.add_card(card)
-        #generator.add_card(card, x=random.uniform(200, generator.width - 200),
-        #                   y=random.uniform(200, generator.height - 200), theta=random.uniform(-math.pi, math.pi), scale=0.5)
-        #card.shift([-100, 100], [-100, 100])
-        #card.rotate((0, 0), [-math.pi / 4, math.pi / 4])
-    import time
-
-    for i in range(100):
-        generator.generate_vertical_span()
-        generator.render(debug=False)
-        generator.export_training_data(out_name='data/test')
-    #generator.generate_horizontal_span()
-    #generator.render(debug=True)
-    #generator.generate_vertical_span()
-    #generator.render(debug=True)
-    '''
     pass
 
 

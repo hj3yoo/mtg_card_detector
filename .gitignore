@@ -3,3 +3,12 @@
 __pycache/
 __pycache__/
 
+#Model repo
+darknet/
+
+#Describable Texture Dataset
+data/dtd/
+
+#Generated training images
+data/train/
+
