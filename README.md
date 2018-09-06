@@ -10,16 +10,16 @@ Uploading all the progresses on the model training for the last few days.
 
 First batch of model training is completed, where I used ~40,000 generated images of MTG cards laid out in one of the pre-defined pattern. 
 
-<img src="https://github.com/hj3yoo/darknet/blob/master/figures/0_training_set_example_1.jpg" width="600">
-<img src="https://github.com/hj3yoo/darknet/blob/master/figures/0_training_set_example_1.jpg" width="600">
-<img src="https://github.com/hj3yoo/darknet/blob/master/figures/0_training_set_example_1.jpg" width="600">
+<img src="https://github.com/hj3yoo/darknet/blob/master/figures/0_training_set_example_1.jpg" width="360">
+<img src="https://github.com/hj3yoo/darknet/blob/master/figures/0_training_set_example_2.jpg" width="360">
+<img src="https://github.com/hj3yoo/darknet/blob/master/figures/0_training_set_example_3.jpg" width="360">
 
 After 5000 training epochs, the model got 88% validation accuracy on the generated test set. 
 
-<img src="https://github.com/hj3yoo/darknet/blob/master/figures/0_detection_result_1.jpg" width="600">
-<img src="https://github.com/hj3yoo/darknet/blob/master/figures/0_detection_result_2.jpg" width="600">
-<img src="https://github.com/hj3yoo/darknet/blob/master/figures/0_detection_result_3.jpg" width="600">
-<img src="https://github.com/hj3yoo/darknet/blob/master/figures/0_detection_result_4.jpg" width="600">
+<img src="https://github.com/hj3yoo/darknet/blob/master/figures/0_detection_result_1.jpg" width="360">
+<img src="https://github.com/hj3yoo/darknet/blob/master/figures/0_detection_result_2.jpg" width="360">
+<img src="https://github.com/hj3yoo/darknet/blob/master/figures/0_detection_result_3.jpg" width="360">
+<img src="https://github.com/hj3yoo/darknet/blob/master/figures/0_detection_result_4.jpg" width="360">
 
 However, there are some blind spots on the model, notably:
 
@@ -29,8 +29,8 @@ However, there are some blind spots on the model, notably:
 
 Example of bad detections:
 
-<img src="https://github.com/hj3yoo/darknet/blob/master/figures/0_detection_result_5.jpg" width="600">
-<img src="https://github.com/hj3yoo/darknet/blob/master/figures/0_detection_result_6.jpg" width="600">
-<img src="https://github.com/hj3yoo/darknet/blob/master/figures/0_detection_result_7.jpg" width="600">
+<img src="https://github.com/hj3yoo/darknet/blob/master/figures/0_detection_result_5.jpg" width="360">
+<img src="https://github.com/hj3yoo/darknet/blob/master/figures/0_detection_result_6.jpg" width="360">
+<img src="https://github.com/hj3yoo/darknet/blob/master/figures/0_detection_result_7.jpg" width="360">
 
 The second and third problems should easily be solved by further augmenting the dataset with random lighting and image skew. I'll have to think more about the first problem, though.
