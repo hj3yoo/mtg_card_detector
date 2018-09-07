@@ -41,11 +41,12 @@ class ImageGenerator:
     """
     A template for generating a training image.
     """
-    def __init__(self, img_bg, width, height, cards=None):
+    def __init__(self, img_bg, width, height, skew=None, cards=None):
         """
         :param img_bg: background (textile) image
         :param width: width of the training image
         :param height: height of the training image
+        :param skew: 4 coordinates that indicates the corners (in normalized form) for perspective transform
         :param cards: list of Card objects
         """
         self.img_bg = img_bg
@@ -56,6 +57,15 @@ class ImageGenerator:
             self.cards = []
         else:
             self.cards = cards
+
+        # Compute transform matrix for perspective transform
+        if skew is not None:
+            orig_corner = np.array([[0, 0], [0, height], [width, height], [width, 0]], dtype=np.float32)
+            new_corner = np.array([[width * s[0], height * s[1]] for s in skew], dtype=np.float32)
+            self.M = cv2.getPerspectiveTransform(orig_corner, new_corner)
+            pass
+        else:
+            self.M = None
         pass
 
     def add_card(self, card, x=None, y=None, theta=0.0, scale=1.0):
@@ -85,7 +95,8 @@ class ImageGenerator:
         :return: none
         """
         self.check_visibility(visibility=visibility)
-        img_result = cv2.resize(self.img_bg, (self.width, self.height))
+        #img_result = cv2.resize(self.img_bg, (self.width, self.height))
+        img_result = np.zeros((self.height, self.width, 3), dtype=np.uint8)
 
         for card in self.cards:
             if card.x == 0.0 and card.y == 0.0 and card.theta == 0.0 and card.scale == 1.0:
@@ -125,9 +136,10 @@ class ImageGenerator:
                 for ext_obj in card.objects:
                     if ext_obj.visible:
                         for pt in ext_obj.key_pts:
-                            cv2.circle(img_result, card.coordinate_in_generator(pt[0], pt[1]), 2, (0, 0, 255), 2)
+                            cv2.circle(img_result, card.coordinate_in_generator(pt[0], pt[1]), 2, (1, 1, 255), 10)
                         bounding_box = card.bb_in_generator(ext_obj.key_pts)
-                        cv2.rectangle(img_result, bounding_box[0], bounding_box[2], (0, 255, 0), 2)
+                        cv2.rectangle(img_result, bounding_box[0], bounding_box[2], (1, 255, 1), 5)
+
         '''
         try:
             text = pytesseract.image_to_string(img_result, output_type=pytesseract.Output.DICT)
@@ -136,6 +148,21 @@ class ImageGenerator:
             pass
         '''
         img_result = cv2.GaussianBlur(img_result, (5, 5), 0)
+
+        if self.M is not None:
+            img_result = cv2.warpPerspective(img_result, self.M, (self.width, self.height))
+            if debug:
+                for card in self.cards:
+                    for ext_obj in card.objects:
+                        if ext_obj.visible:
+                            new_pts = np.array([[list(card.coordinate_in_generator(pt[0], pt[1]))]
+                                                for pt in ext_obj.key_pts], dtype=np.float32)
+                            new_pts = cv2.perspectiveTransform(new_pts, self.M)
+                            for pt in new_pts:
+                                cv2.circle(img_result, (pt[0][0], pt[0][1]), 2, (255, 1, 1), 10)
+
+        img_bg = cv2.resize(self.img_bg, (self.width, self.height))
+        img_result = np.where(img_result, img_result, img_bg)
 
         if aug is not None:
             img_result = aug.augment_image(img_result)
@@ -461,6 +488,7 @@ def main():
     ia.seed(random.randrange(10000))
 
     bg_images = generate_data.load_dtd(dtd_dir='%s/dtd/images' % data_dir, dump_it=False)
+    #bg_images = [cv2.imread('data/frilly_0007.jpg')]
     background = generate_data.Backgrounds(images=bg_images)
 
     card_pool = pd.DataFrame()
@@ -472,7 +500,11 @@ def main():
     num_iter = 1
 
     for i in range(num_gen):
-        generator = ImageGenerator(background.get_random(), 1440, 960)
+        # Arbitrarily select top left and right corners for perspective transformation
+        # Since the training image are generated with random rotation, don't need to skew all four sides
+        skew = [[random.uniform(0, 0.25), 0], [0, 1], [1, 1],
+                [random.uniform(0.75, 1), 0]]
+        generator = ImageGenerator(background.get_random(), 1440, 960, skew=skew)
         out_name = ''
         for _, card_info in card_pool.sample(random.randint(2, 5)).iterrows():
             img_name = '%s/card_img/png/%s/%s_%s.png' % (data_dir, card_info['set'], card_info['collector_number'],
@@ -492,8 +524,8 @@ def main():
                 iaa.Multiply((0.8, 1.2)),  # darken / brighten the whole image
                 iaa.SimplexNoiseAlpha(first=iaa.Add(random.randrange(64)), per_channel=0.1, size_px_max=[3, 6],
                                       upscale_method="cubic"),  # Lighting
-                iaa.AdditiveGaussianNoise(scale=random.uniform(0.005, 0.05) * 255, per_channel=0.1),  # Noises
-                iaa.Dropout(p=[0.005, 0.05], per_channel=0.1)
+                iaa.AdditiveGaussianNoise(scale=random.uniform(0, 0.05) * 255, per_channel=0.1),  # Noises
+                iaa.Dropout(p=[0, 0.05], per_channel=0.1)
             ])
             if i % 3 == 0:
                 generator.generate_non_obstructive()
@@ -507,6 +539,8 @@ def main():
                 generator.generate_vertical_span(theta=random.uniform(-math.pi, math.pi))
                 generator.export_training_data(visibility=0.0, out_name='%s/train/vertical_span/%s_%d'
                                                                         % (data_dir, out_name, j), aug=seq)
+            #generator.generate_horizontal_span(theta=random.uniform(-math.pi, math.pi))
+            #generator.render(display=True, aug=seq, debug=True)
             print('Generated %s%d' % (out_name, j))
             generator.img_bg = background.get_random()
     pass
