@@ -28,3 +28,5 @@ Thumbs.db
 # CMake #
 cmake-build-debug/
 CMakeLists.txt
+
+yolo.weights
