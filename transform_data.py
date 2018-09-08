@@ -14,7 +14,7 @@ from imgaug import augmenters as iaa
 from imgaug import parameters as iap
 
 card_mask = cv2.imread('data/mask.png')
-data_dir = os.path.abspath('/media/edmond/My Passport/data')
+data_dir = os.path.abspath('/media/win10/data')
 darknet_dir = os.path.abspath('darknet')
 
 
@@ -529,15 +529,15 @@ def main():
             ])
             if i % 3 == 0:
                 generator.generate_non_obstructive()
-                generator.export_training_data(visibility=0.0, out_name='%s/train/non_obstructive/%s_%d'
+                generator.export_training_data(visibility=0.0, out_name='%s/train/non_obstructive_skew/%s_%d'
                                                                         % (data_dir, out_name, j), aug=seq)
             elif i % 3 == 1:
                 generator.generate_horizontal_span(theta=random.uniform(-math.pi, math.pi))
-                generator.export_training_data(visibility=0.0, out_name='%s/train/horizontal_span/%s_%d'
+                generator.export_training_data(visibility=0.0, out_name='%s/train/horizontal_span_skew/%s_%d'
                                                                         % (data_dir, out_name, j), aug=seq)
             else:
                 generator.generate_vertical_span(theta=random.uniform(-math.pi, math.pi))
-                generator.export_training_data(visibility=0.0, out_name='%s/train/vertical_span/%s_%d'
+                generator.export_training_data(visibility=0.0, out_name='%s/train/vertical_span_skew/%s_%d'
                                                                         % (data_dir, out_name, j), aug=seq)
             #generator.generate_horizontal_span(theta=random.uniform(-math.pi, math.pi))
             #generator.render(display=True, aug=seq, debug=True)

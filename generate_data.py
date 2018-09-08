@@ -11,7 +11,7 @@ import fetch_data
 import sys
 import numpy as np
 import pandas as pd
-from transform_data import ExtractedObject
+import transform_data
 
 # Referenced from geaxgx's playing-card-detection: https://github.com/geaxgx/playing-card-detection
 class Backgrounds:
@@ -66,7 +66,7 @@ def load_dtd(dtd_dir='data/dtd/images', dump_it=True, dump_batch_size=1000):
 def apply_bounding_box(img, card_info, display=False):
     # List of detected objects to be fed into the neural net
     # The first object is the entire card
-    detected_object_list = [ExtractedObject('card', [(0, 0), (len(img[0]), 0), (len(img[0]), len(img)), (0, len(img))])]
+    detected_object_list = [transform_data.ExtractedObject('card', [(0, 0), (len(img[0]), 0), (len(img[0]), len(img)), (0, len(img))])]
     '''
     # Mana symbol - They are located on the top right side of the card, next to the name
     # Their position is stationary, and is right-aligned.
@@ -98,7 +98,7 @@ def apply_bounding_box(img, card_info, display=False):
             # Append them to the list of bounding box with the appropriate label
             symbol_name = 'mana_symbol:' + mana_cost[i]
             key_pts = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
-            detected_object_list.append(ExtractedObject(symbol_name, key_pts))
+            detected_object_list.append(transform_data.ExtractedObject(symbol_name, key_pts))
 
             if display:
                 img_symbol = img[y1:y2, x1:x2]
@@ -163,7 +163,7 @@ def apply_bounding_box(img, card_info, display=False):
     # Append them to the list of bounding box with the appropriate label
     symbol_name = 'set_symbol:' + card_info['set']
     key_pts = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
-    detected_object_list.append(ExtractedObject(symbol_name, key_pts))
+    detected_object_list.append(transform_data.ExtractedObject(symbol_name, key_pts))
 
     if display:
         img_symbol = img[y1:y2, x1:x2]
