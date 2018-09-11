@@ -28,7 +28,7 @@ Example of bad detections:
 
 The second and third problems should easily be solved by further augmenting the dataset with random lighting and image skew. I'll have to think more about the first problem, though.
 
-## Day 1
+## Sept 7th, 2018
 -----------------------
 
 Added several image augmentation techniques to apply to the training set: noise, dropout, light variation, and glaring:
@@ -45,6 +45,16 @@ I've ran a quick training with tiny_yolo configuration with new training data, a
 
 <img src="https://github.com/hj3yoo/darknet/blob/master/figures/1_detection_result_1.jpg" width="360"> <img src="https://github.com/hj3yoo/darknet/blob/master/figures/1_decision_result_2.jpg" width="360"> <img src="https://github.com/hj3yoo/darknet/blob/master/figures/1_decision_result_3.jpg" width="360"> <img src="https://github.com/hj3yoo/darknet/blob/master/figures/1_decision_result_4.jpg" width="360"> <img src="https://github.com/hj3yoo/darknet/blob/master/figures/1_decision_result_5.jpg" width="360"> <img src="https://github.com/hj3yoo/darknet/blob/master/figures/1_decision_result_6.jpg" width="360">
 
-<img src="https://github.com/hj3yoo/darknet/blob/master/figures/1_learning_curve.jpg" width="360"> 
+<img src="https://github.com/hj3yoo/darknet/blob/master/figures/1_learning_curve.jpg" width="640"> 
 
 The video demo can be found here: https://www.youtube.com/watch?v=kFE_k-mWo2A&feature=youtu.be
+
+
+## Sept 10th, 2018
+-----------------------
+
+I've been training a new model with a full YOLOv3 configuration (previous one used Tiny YOLOv3), and it's been taking a lot more resources:
+
+<img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_learning_curve.jpg" width="640"> 
+
+The author of darknet did mention that full network will take significantly more training effort, so I'll just have to wait. At this rate, it should reach 50k epoch in about a week :/
