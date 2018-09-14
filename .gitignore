@@ -9,6 +9,7 @@ caffe/
 grasp/
 images/
 opencv/
+out/
 convnet/
 decaf/
 submission/
@@ -28,4 +29,4 @@ Thumbs.db
 cmake-build-debug/
 CMakeLists.txt
 
-yolo.weights
+*.weights
