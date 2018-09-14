@@ -31,6 +31,7 @@ from ctypes import *
 import math
 import random
 import os
+import cv2
 
 def sample(probs):
     s = sum(probs)
@@ -421,5 +422,49 @@ def performDetect(imagePath="data/dog.jpg", thresh= 0.25, configPath = "./cfg/yo
             print("Unable to show image: "+str(e))
     return detections
 
+
+def capture(thresh=.5, hier_thresh=.5, nms=.45, configPath="./cfg/yolov3.cfg", weightPath="yolov3.weights",
+            metaPath="./data/coco.data", showImage=True, makeImageOnly=False, initOnly=False):
+    global metaMain, netMain, altNames  # pylint: disable=W0603
+    netMain = load_net_custom(configPath.encode("ascii"), weightPath.encode("ascii"), 0, 1)  # batch size = 1
+    metaMain = load_meta(metaPath.encode("ascii"))
+
+    num = c_int(0)
+    pnum = pointer(num)
+    num = pnum[0]
+
+    capture = cv2.VideoCapture('../data/test3.mp4')
+    print(capture.get(cv2.CAP_PROP_FPS))
+
+    capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1024)
+    capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 768)
+
+    while True:
+        ret, frame = capture.read()
+        im, arr = array_to_image(frame)
+        predict_image(netMain, im)
+        dets = get_network_boxes(netMain, im.w, im.h, thresh, hier_thresh, None, 0, pnum, 1)
+        if nms:
+            do_nms_sort(dets, num, metaMain.classes, nms)
+        res = []
+        for j in range(num):
+            for i in range(metaMain.classes):
+                if dets[j].prob[i] > 0:
+                    b = dets[j].bbox
+                    nameTag = metaMain.names[i]
+                    res.append((nameTag, dets[j].prob[i], (b.x, b.y, b.w, b.h)))
+        print(res)
+        cv2.imshow('frame', frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    capture.release()
+    cv2.destroyAllWindows()
+
+
 if __name__ == "__main__":
-    print(performDetect())
+    performDetect(imagePath="../data/test1.jpg", thresh=0.25, configPath="./cfg/tiny_yolo.cfg",
+                  weightPath="./weights/second_general/tiny_yolo_17000.weights",
+                  metaPath="./data/obj.data", showImage=True, makeImageOnly=False, initOnly=False)
+    #print(performDetect(showImage=False))
+    #capture()

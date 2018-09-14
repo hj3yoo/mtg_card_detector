@@ -55,6 +55,22 @@ The video demo can be found here: https://www.youtube.com/watch?v=kFE_k-mWo2A&fe
 
 I've been training a new model with a full YOLOv3 configuration (previous one used Tiny YOLOv3), and it's been taking a lot more resources:
 
-<img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_learning_curve.jpg" width="640"> 
+<img src="https://github.com/hj3yoo/darknet/blob/master/figures/2_learning_curve.jpg" width="640"> 
 
 The author of darknet did mention that full network will take significantly more training effort, so I'll just have to wait. At this rate, it should reach 50k epoch in about a week :/
+
+
+## Sept 13th, 2018
+----------------------
+
+The training for full YOLOv3 model has turned sour - the loss saturated around 0.45, and didn't seem like it would improve in any reasonable amount of time. 
+
+<img src="https://github.com/hj3yoo/darknet/blob/master/figures/3_learning_curve.jpg" width="640"> 
+
+As expected, the performance of the model with 0.45 loss was fairly bad. Not to mention that it's quite slower, too. I've decided to continue with tiny YOLOv3 weights. I tried to train it further, but it was already saturated, and was the best it could get.
+
+---------------------
+
+Bad news, I couldn't find any repo that has python wrapper for darknet to pursue this project further. There is a [python example](https://github.com/AlexeyAB/darknet/blob/master/darknet.py) in the original repo of this fork, but [it doesn't support video input](https://github.com/AlexeyAB/darknet/issues/955). Other darknet repos are in the same situation.
+
+I suppose there is a poor man's alternative - feed individual frames from the video into the detection script for image. I'll have to give it a shot.

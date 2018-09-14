@@ -4,7 +4,7 @@ CUDNN_HALF=0
 OPENCV=1
 AVX=0
 OPENMP=0
-LIBSO=0
+LIBSO=1
 
 # set GPU=1 and CUDNN=1 to speedup on GPU
 # set CUDNN_HALF=1 to further speedup 3 x times (Mixed-precision using Tensor Cores) on GPU Tesla V100, Titan V, DGX-2
