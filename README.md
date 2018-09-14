@@ -74,3 +74,9 @@ As expected, the performance of the model with 0.45 loss was fairly bad. Not to 
 Bad news, I couldn't find any repo that has python wrapper for darknet to pursue this project further. There is a [python example](https://github.com/AlexeyAB/darknet/blob/master/darknet.py) in the original repo of this fork, but [it doesn't support video input](https://github.com/AlexeyAB/darknet/issues/955). Other darknet repos are in the same situation.
 
 I suppose there is a poor man's alternative - feed individual frames from the video into the detection script for image. I'll have to give it a shot.
+
+
+## Sept 14th, 2018
+--------------------
+
+Thankfully, OpenCV had an implementation for DNN, which supports YOLO as well. They have done quite an amazing job, and the speed isn't too bad, either. I can score about 20~25fps on my tiny YOLO, without using GPU.
