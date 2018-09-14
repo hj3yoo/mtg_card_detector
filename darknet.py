@@ -32,6 +32,7 @@ import math
 import random
 import os
 import cv2
+import numpy as np
 
 def sample(probs):
     s = sum(probs)
@@ -223,7 +224,10 @@ def detect(net, meta, image, thresh=.5, hier_thresh=.5, nms=.45, debug= False):
     Performs the meat of the detection
     """
     #pylint: disable= C0321
-    im = load_image(image, 0, 0)
+    if isinstance(image, np.ndarray):
+        im = array_to_image(image)[0]
+    else:
+        im = load_image(image, 0, 0)
     #import cv2
     #custom_image_bgr = cv2.imread(image) # use: detect(,,imagePath,)
     #custom_image = cv2.cvtColor(custom_image_bgr, cv2.COLOR_BGR2RGB)
@@ -367,7 +371,8 @@ def performDetect(imagePath="data/dog.jpg", thresh= 0.25, configPath = "./cfg/yo
         raise ValueError("Invalid image path `"+os.path.abspath(imagePath)+"`")
     # Do the detection
     #detections = detect(netMain, metaMain, imagePath, thresh)	# if is used cv2.imread(image)
-    detections = detect(netMain, metaMain, imagePath.encode("ascii"), thresh)
+    #detections = detect(netMain, metaMain, imagePath.encode("ascii"), thresh)
+    detections = detect(netMain, metaMain, cv2.imread(imagePath), thresh, debug=True)
     if showImage:
         try:
             from skimage import io, draw
@@ -423,7 +428,7 @@ def performDetect(imagePath="data/dog.jpg", thresh= 0.25, configPath = "./cfg/yo
     return detections
 
 
-def capture(thresh=.5, hier_thresh=.5, nms=.45, configPath="./cfg/yolov3.cfg", weightPath="yolov3.weights",
+def capture(thresh=.25, hier_thresh=.5, nms=.45, configPath="./cfg/yolov3.cfg", weightPath="yolov3.weights",
             metaPath="./data/coco.data", showImage=True, makeImageOnly=False, initOnly=False):
     global metaMain, netMain, altNames  # pylint: disable=W0603
     netMain = load_net_custom(configPath.encode("ascii"), weightPath.encode("ascii"), 0, 1)  # batch size = 1
@@ -433,7 +438,7 @@ def capture(thresh=.5, hier_thresh=.5, nms=.45, configPath="./cfg/yolov3.cfg", w
     pnum = pointer(num)
     num = pnum[0]
 
-    capture = cv2.VideoCapture('../data/test3.mp4')
+    capture = cv2.VideoCapture('../data/test1.mp4')
     print(capture.get(cv2.CAP_PROP_FPS))
 
     capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1024)
@@ -441,6 +446,8 @@ def capture(thresh=.5, hier_thresh=.5, nms=.45, configPath="./cfg/yolov3.cfg", w
 
     while True:
         ret, frame = capture.read()
+        detections = detect(netMain, metaMain, frame, thresh, debug=True)
+        '''
         im, arr = array_to_image(frame)
         predict_image(netMain, im)
         dets = get_network_boxes(netMain, im.w, im.h, thresh, hier_thresh, None, 0, pnum, 1)
@@ -453,6 +460,42 @@ def capture(thresh=.5, hier_thresh=.5, nms=.45, configPath="./cfg/yolov3.cfg", w
                     b = dets[j].bbox
                     nameTag = metaMain.names[i]
                     res.append((nameTag, dets[j].prob[i], (b.x, b.y, b.w, b.h)))
+        '''
+        for detection in detections:
+            label = detection[0]
+            confidence = detection[1]
+            pstring = label + ": " + str(np.rint(100 * confidence)) + "%"
+            imcaption.append(pstring)
+            print(pstring)
+            bounds = detection[2]
+            shape = image.shape
+            # x = shape[1]
+            # xExtent = int(x * bounds[2] / 100)
+            # y = shape[0]
+            # yExtent = int(y * bounds[3] / 100)
+            yExtent = int(bounds[3])
+            xEntent = int(bounds[2])
+            # Coordinates are around the center
+            xCoord = int(bounds[0] - bounds[2] / 2)
+            yCoord = int(bounds[1] - bounds[3] / 2)
+            boundingBox = [
+                [xCoord, yCoord],
+                [xCoord, yCoord + yExtent],
+                [xCoord + xEntent, yCoord + yExtent],
+                [xCoord + xEntent, yCoord]
+            ]
+            # Wiggle it around to make a 3px border
+            rr, cc = draw.polygon_perimeter([x[1] for x in boundingBox], [x[0] for x in boundingBox], shape=shape)
+            rr2, cc2 = draw.polygon_perimeter([x[1] + 1 for x in boundingBox], [x[0] for x in boundingBox], shape=shape)
+            rr3, cc3 = draw.polygon_perimeter([x[1] - 1 for x in boundingBox], [x[0] for x in boundingBox], shape=shape)
+            rr4, cc4 = draw.polygon_perimeter([x[1] for x in boundingBox], [x[0] + 1 for x in boundingBox], shape=shape)
+            rr5, cc5 = draw.polygon_perimeter([x[1] for x in boundingBox], [x[0] - 1 for x in boundingBox], shape=shape)
+            boxColor = (int(255 * (1 - (confidence ** 2))), int(255 * (confidence ** 2)), 0)
+            draw.set_color(image, (rr, cc), boxColor, alpha=0.8)
+            draw.set_color(image, (rr2, cc2), boxColor, alpha=0.8)
+            draw.set_color(image, (rr3, cc3), boxColor, alpha=0.8)
+            draw.set_color(image, (rr4, cc4), boxColor, alpha=0.8)
+            draw.set_color(image, (rr5, cc5), boxColor, alpha=0.8)
         print(res)
         cv2.imshow('frame', frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -463,8 +506,9 @@ def capture(thresh=.5, hier_thresh=.5, nms=.45, configPath="./cfg/yolov3.cfg", w
 
 
 if __name__ == "__main__":
-    performDetect(imagePath="../data/test1.jpg", thresh=0.25, configPath="./cfg/tiny_yolo.cfg",
-                  weightPath="./weights/second_general/tiny_yolo_17000.weights",
-                  metaPath="./data/obj.data", showImage=True, makeImageOnly=False, initOnly=False)
+    performDetect(imagePath='data/scream.jpg')
+    #performDetect(imagePath="../data/test1.jpg", thresh=0.25, configPath="./cfg/tiny_yolo.cfg",
+    #              weightPath="./weights/second_general/tiny_yolo_17000.weights",
+    #              metaPath="./data/obj.data", showImage=True, makeImageOnly=False, initOnly=False)
     #print(performDetect(showImage=False))
     #capture()
