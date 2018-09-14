@@ -68,7 +68,33 @@ def draw_pred(frame, class_id, classes, conf, left, top, right, bottom):
     cv2.putText(frame, label, (left, top), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255))
 
 
+def remove_glare(img):
+    img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    _, s, v = cv2.split(img_hsv)
+    non_sat = (s < 32) * 255  # Find all pixels that are not very saturated
+
+    # Slightly decrease the area of the non-satuared pixels by a erosion operation.
+    disk = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    non_sat = cv2.erode(non_sat.astype(np.uint8), disk)
+
+    # Set all brightness values, where the pixels are still saturated to 0.
+    v[non_sat == 0] = 0
+    # filter out very bright pixels.
+    glare = (v > 240) * 255
+
+    # Slightly increase the area for each pixel
+    glare = cv2.dilate(glare.astype(np.uint8), disk)
+    #glare = cv2.dilate(glare.astype(np.uint8), disk);
+
+    #corrected = cv2.inpaint(img, glare, 7, cv2.INPAINT_TELEA)
+    glare_reduced = np.ones((img.shape[0], img.shape[1], 3), dtype=np.uint8) * 200
+    glare = cv2.cvtColor(glare, cv2.COLOR_GRAY2BGR)
+    corrected = np.where(glare, glare_reduced, img)
+    return corrected
+
+
 def detect_frame(net, classes, img, thresh_conf=0.5, thresh_nms=0.4, in_dim=(416, 416), display=True, out_path=None):
+    img_copy = img.copy()
     # Create a 4D blob from a frame.
     blob = cv2.dnn.blobFromImage(img, 1 / 255, in_dim, [0, 0, 0], 1, crop=False)
 
@@ -94,8 +120,26 @@ def detect_frame(net, classes, img, thresh_conf=0.5, thresh_nms=0.4, in_dim=(416
     if out_path is not None:
         cv2.imwrite(out_path, img.astype(np.uint8))
     if display:
-        cv2.imshow('result', img)
+        no_glare = remove_glare(img_copy)
+        img_concat = np.concatenate((img, no_glare), axis=1)
+        cv2.imshow('result', img_concat)
+
+        '''
+        for i in range(len(obj_list)):
+            class_id, confidence, box = obj_list[i]
+            left, top, width, height = box
+            img_snip = img[max(0, top):min(img.shape[0], top + height), max(0, left):min(img.shape[1], left + width)]
+            #cv2.imshow('feature#%d' % i, img_snip)
+            img_hsv = cv2.cvtColor(img_snip, cv2.COLOR_BGR2HSV)
+            h, s, v = cv2.split(img_hsv)
+            #h = cv2.cvtColor(h, cv2.COLOR_GRAY2BGR)
+            s = cv2.cvtColor(s, cv2.COLOR_GRAY2BGR)
+            v = cv2.cvtColor(v, cv2.COLOR_GRAY2BGR)
+            img_concat = np.concatenate((img_snip, s, v), axis=1)
+            cv2.imshow('feature#%d - hsv' % i, img_concat)
+        '''
         cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
     return obj_list
 
@@ -105,6 +149,7 @@ def detect_video(net, classes, capture, thresh_conf=0.5, thresh_nms=0.4, in_dim=
         vid_writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), 30,
                                      (round(capture.get(cv2.CAP_PROP_FRAME_WIDTH)),
                                       round(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))))
+    max_num_obj = 0
     while True:
         ret, frame = capture.read()
         if not ret:
@@ -112,10 +157,33 @@ def detect_video(net, classes, capture, thresh_conf=0.5, thresh_nms=0.4, in_dim=
             print("End of video. Press any key to exit")
             cv2.waitKey(0)
             break
+        img = frame.copy()
         obj_list = detect_frame(net, classes, frame, thresh_conf=thresh_conf, thresh_nms=thresh_nms, in_dim=in_dim,
                                 display=False, out_path=None)
+        max_num_obj = max(max_num_obj, len(obj_list))
         if display:
-            cv2.imshow('result', frame)
+            no_glare = remove_glare(img)
+            img_concat = np.concatenate((frame, no_glare), axis=1)
+            cv2.imshow('result', img_concat)
+            '''
+            for i in range(len(obj_list)):
+                class_id, confidence, box = obj_list[i]
+                left, top, width, height = box
+                img_snip = img[max(0, top):min(img.shape[0], top + height),
+                           max(0, left):min(img.shape[1], left + width)]
+                # cv2.imshow('feature#%d' % i, img_snip)
+                img_hsv = cv2.cvtColor(img_snip, cv2.COLOR_BGR2HSV)
+                h, s, v = cv2.split(img_hsv)
+                # h = cv2.cvtColor(h, cv2.COLOR_GRAY2BGR)
+                s = cv2.cvtColor(s, cv2.COLOR_GRAY2BGR)
+                v = cv2.cvtColor(v, cv2.COLOR_GRAY2BGR)
+                img_concat = np.concatenate((img_snip, s, v), axis=1)
+                cv2.imshow('feature#%d - hsv' % i, img_concat)
+            for i in range(len(obj_list), max_num_obj):
+                cv2.imshow('feature#%d - hsv' % i, np.zeros((1, 1), dtype=np.uint8))
+            '''
+            #if len(obj_list) > 0:
+                #cv2.waitKey(0)
         if out_path is not None:
             vid_writer.write(frame.astype(np.uint8))
         cv2.waitKey(1)
@@ -127,7 +195,7 @@ def detect_video(net, classes, capture, thresh_conf=0.5, thresh_nms=0.4, in_dim=
 
 def main():
     # Specify paths for all necessary files
-    test_path = os.path.abspath('../data/test1.mp4')
+    test_path = os.path.abspath('../data/test18.jpg')
     weight_path = 'weights/second_general/tiny_yolo_final.weights'
     cfg_path = 'cfg/tiny_yolo.cfg'
     class_path = "data/obj.names"
