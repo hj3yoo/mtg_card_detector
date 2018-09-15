@@ -4,8 +4,11 @@ import json
 import pandas as pd
 import re
 import os
+import transform_data
+import time
 
-all_set_list = ['mrd', 'dst', '5dn', 'chk', 'bok', 'sok', 'rav', 'gpt', 'dis', 'csp', 'tsp', 'plc', 'fut',
+all_set_list = ['cmd', 'bfz', 'all', 'ulg',
+                'mrd', 'dst', '5dn', 'chk', 'bok', 'sok', 'rav', 'gpt', 'dis', 'csp', 'tsp', 'plc', 'fut',
                 '10e', 'lrw', 'mor', 'shm', 'eve', 'ala', 'con', 'arb', 'm10', 'zen', 'wwk', 'roe', 'm11', 'som', 'mbs',
                 'nph', 'm12', 'isd', 'dka', 'avr', 'm13', 'rtr', 'gtc', 'dgm', 'm14', 'ths', 'bng', 'jou']
 
@@ -84,19 +87,18 @@ def fetch_card_image(row, out_dir='', size='png'):
 
 
 def main():
-    '''
     for set_name in all_set_list:
-        csv_name = 'data/csv/%s.csv' % set_name
+        csv_name = '%s/csv/%s.csv' % (transform_data.data_dir, set_name)
+        print(csv_name)
         if not os.path.isfile(csv_name):
-            df = fetch_all_cards_text(url='https://api.scryfall.com/cards/search?q=layout:normal+set:%s+lang:en+frame:2003'
+            df = fetch_all_cards_text(url='https://api.scryfall.com/cards/search?q=set:%s+lang:en'
                                           % set_name, csv_name=csv_name)
         else:
             df = load_all_cards_text(csv_name)
-        print(csv_name)
-        fetch_all_cards_image(df, out_dir='../usb/data/png/%s' % set_name)
-    '''
-    df = fetch_all_cards_text(url='https://api.scryfall.com/cards/search?q=layout:normal+lang:en+frame:2003',
-                              csv_name='data/csv/all.csv')
+        time.sleep(1)
+        #fetch_all_cards_image(df, out_dir='../usb/data/png/%s' % set_name)
+    #df = fetch_all_cards_text(url='https://api.scryfall.com/cards/search?q=layout:normal+lang:en+frame:2003',
+    #                          csv_name='data/csv/all.csv')
     pass
 
 

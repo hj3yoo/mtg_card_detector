@@ -26,10 +26,10 @@ def key_pts_to_yolo(key_pts, w_img, h_img):
     :param h_img: height of the entire image
     :return: <x> <y> <width> <height>
     """
-    x1 = min([pt[0] for pt in key_pts])
-    x2 = max([pt[0] for pt in key_pts])
-    y1 = min([pt[1] for pt in key_pts])
-    y2 = max([pt[1] for pt in key_pts])
+    x1 = max(0, min([pt[0] for pt in key_pts]))
+    x2 = min(w_img, max([pt[0] for pt in key_pts]))
+    y1 = max(0, min([pt[1] for pt in key_pts]))
+    y2 = min(h_img, max([pt[1] for pt in key_pts]))
     x = (x2 + x1) / 2 / w_img
     y = (y2 + y1) / 2 / h_img
     width = (x2 - x1) / w_img
@@ -41,7 +41,7 @@ class ImageGenerator:
     """
     A template for generating a training image.
     """
-    def __init__(self, img_bg, width, height, skew=None, cards=None):
+    def __init__(self, img_bg, class_ids, width, height, skew=None, cards=None):
         """
         :param img_bg: background (textile) image
         :param width: width of the training image
@@ -50,6 +50,7 @@ class ImageGenerator:
         :param cards: list of Card objects
         """
         self.img_bg = img_bg
+        self.class_ids = class_ids
         self.img_result = None
         self.width = width
         self.height = height
@@ -107,6 +108,12 @@ class ImageGenerator:
 
             # Scale & rotate card image
             img_card = cv2.resize(card.img, (int(len(card.img[0]) * card.scale), int(len(card.img) * card.scale)))
+            if aug is not None:
+                seq = iaa.Sequential([
+                    iaa.SimplexNoiseAlpha(first=iaa.Add(random.randrange(128)), size_px_max=[1, 3],
+                                          upscale_method="cubic"),  # Lighting
+                ])
+                img_card = seq.augment_image(img_card)
             mask_scale = cv2.resize(card_mask, (int(len(card_mask[0]) * card.scale), int(len(card_mask) * card.scale)))
             img_mask = cv2.bitwise_and(img_card, mask_scale)
             img_rotate = imutils.rotate_bound(img_mask, card.theta / math.pi * 180)
@@ -340,7 +347,8 @@ class ImageGenerator:
                 coords_in_gen = [card.coordinate_in_generator(key_pt[0], key_pt[1]) for key_pt in ext_obj.key_pts]
                 obj_yolo_info = key_pts_to_yolo(coords_in_gen, self.width, self.height)
                 if ext_obj.label == 'card':
-                    out_txt.write('0 %.6f %.6f %.6f %.6f\n' % obj_yolo_info)
+                    class_id = self.class_ids[card.info['name']]
+                    out_txt.write(str(class_id) + ' %.6f %.6f %.6f %.6f\n' % obj_yolo_info)
                     pass
                 elif ext_obj.label[:ext_obj.label.find[':']] == 'mana_symbol':
                     # TODO
@@ -491,10 +499,17 @@ def main():
     #bg_images = [cv2.imread('data/frilly_0007.jpg')]
     background = generate_data.Backgrounds(images=bg_images)
 
-    card_pool = pd.DataFrame()
-    for set_name in fetch_data.all_set_list:
-        df = fetch_data.load_all_cards_text('%s/csv/%s.csv' % (data_dir, set_name))
-        card_pool = card_pool.append(df)
+    #card_pool = pd.DataFrame()
+    #for set_name in fetch_data.all_set_list:
+    #    df = fetch_data.load_all_cards_text('%s/csv/%s.csv' % (data_dir, set_name))
+    #    card_pool = card_pool.append(df)
+    card_pool = fetch_data.load_all_cards_text('%s/csv/custom.csv' % data_dir)
+    class_ids = {}
+    with open('%s/obj.names' % data_dir) as names_file:
+        class_name_list = names_file.read().splitlines()
+        for i in range(len(class_name_list)):
+            class_ids[class_name_list[i]] = i
+    print(class_ids)
 
     num_gen = 60000
     num_iter = 1
@@ -504,7 +519,7 @@ def main():
         # Since the training image are generated with random rotation, don't need to skew all four sides
         skew = [[random.uniform(0, 0.25), 0], [0, 1], [1, 1],
                 [random.uniform(0.75, 1), 0]]
-        generator = ImageGenerator(background.get_random(), 1440, 960, skew=skew)
+        generator = ImageGenerator(background.get_random(), class_ids, 1440, 960, skew=skew)
         out_name = ''
         for _, card_info in card_pool.sample(random.randint(2, 5)).iterrows():
             img_name = '%s/card_img/png/%s/%s_%s.png' % (data_dir, card_info['set'], card_info['collector_number'],
@@ -527,18 +542,20 @@ def main():
                 iaa.AdditiveGaussianNoise(scale=random.uniform(0, 0.05) * 255, per_channel=0.1),  # Noises
                 iaa.Dropout(p=[0, 0.05], per_channel=0.1)
             ])
+
             if i % 3 == 0:
                 generator.generate_non_obstructive()
-                generator.export_training_data(visibility=0.0, out_name='%s/train/non_obstructive_skew/%s_%d'
+                generator.export_training_data(visibility=0.0, out_name='%s/train/non_obstructive_custom/%s_%d'
                                                                         % (data_dir, out_name, j), aug=seq)
             elif i % 3 == 1:
                 generator.generate_horizontal_span(theta=random.uniform(-math.pi, math.pi))
-                generator.export_training_data(visibility=0.0, out_name='%s/train/horizontal_span_skew/%s_%d'
+                generator.export_training_data(visibility=0.0, out_name='%s/train/horizontal_span_custom/%s_%d'
                                                                         % (data_dir, out_name, j), aug=seq)
             else:
                 generator.generate_vertical_span(theta=random.uniform(-math.pi, math.pi))
-                generator.export_training_data(visibility=0.0, out_name='%s/train/vertical_span_skew/%s_%d'
+                generator.export_training_data(visibility=0.0, out_name='%s/train/vertical_span_custom/%s_%d'
                                                                         % (data_dir, out_name, j), aug=seq)
+
             #generator.generate_horizontal_span(theta=random.uniform(-math.pi, math.pi))
             #generator.render(display=True, aug=seq, debug=True)
             print('Generated %s%d' % (out_name, j))
