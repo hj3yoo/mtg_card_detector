@@ -545,15 +545,15 @@ def main():
 
             if i % 3 == 0:
                 generator.generate_non_obstructive()
-                generator.export_training_data(visibility=0.0, out_name='%s/train/non_obstructive_custom/%s_%d'
+                generator.export_training_data(visibility=0.0, out_name='%s/train/non_obstructive_10/%s%d'
                                                                         % (data_dir, out_name, j), aug=seq)
             elif i % 3 == 1:
                 generator.generate_horizontal_span(theta=random.uniform(-math.pi, math.pi))
-                generator.export_training_data(visibility=0.0, out_name='%s/train/horizontal_span_custom/%s_%d'
+                generator.export_training_data(visibility=0.0, out_name='%s/train/horizontal_span_10/%s%d'
                                                                         % (data_dir, out_name, j), aug=seq)
             else:
                 generator.generate_vertical_span(theta=random.uniform(-math.pi, math.pi))
-                generator.export_training_data(visibility=0.0, out_name='%s/train/vertical_span_custom/%s_%d'
+                generator.export_training_data(visibility=0.0, out_name='%s/train/vertical_span_10/%s%d'
                                                                         % (data_dir, out_name, j), aug=seq)
 
             #generator.generate_horizontal_span(theta=random.uniform(-math.pi, math.pi))
