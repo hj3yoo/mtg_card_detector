@@ -1,14 +1,34 @@
 import cv2
 import numpy as np
+import pandas as pd
 import imagehash as ih
 import os
 import sys
 import math
 import random
-from operator import itemgetter
+from PIL import Image
+from .. import fetch_data
+from .. import transform_data
 
 card_width = 315
 card_height = 440
+
+df = fetch_data.load_all_cards_text('%s/csv/rsv.csv' % transform_data.data_dir)
+df['art_hash'] = np.NaN
+for _, card_info in card_pool.iterrows():
+    img_name = '%s/card_img/png/%s/%s_%s.png' % (data_dir, card_info['set'], card_info['collector_number'],
+                                                 fetch_data.get_valid_filename(card_info['name']))
+    card_img = cv2.imread(img_name)
+    if card_img is None:
+        fetch_data.fetch_card_image(card_info, out_dir='%s/card_img/png/%s' % (data_dir, card_info['set']))
+        card_img = cv2.imread(img_name)
+    if card_img is None:
+        print('WARNING: card %s is not found!' % img_name)
+    img_art = Image.fromarray(card_img[121:580, 63:685])
+    card_info['art_hash'] = ih.phash(img_card, hash_size=32, highfreq_factor=4)
+
+print(df['art_hash'])
+
 
 
 # Disclaimer: majority of the basic framework in this file is modified from the following tutorial:
@@ -172,7 +192,7 @@ def remove_glare(img):
     return corrected
 
 
-def find_card(img, thresh_c=5, kernel_size=(3, 3), size_ratio=0.3):
+def find_card(img, thresh_c=5, kernel_size=(3, 3), size_ratio=0.15):
     # Typical pre-processing - grayscale, blurring, thresholding
     img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     img_blur = cv2.medianBlur(img_gray, 5)
@@ -190,6 +210,8 @@ def find_card(img, thresh_c=5, kernel_size=(3, 3), size_ratio=0.3):
         print('no contours')
         return []
     #img_contour = cv2.cvtColor(img_contour, cv2.COLOR_GRAY2BGR)
+    #img_contour = cv2.drawContours(img_contour, cnts, -1, (0, 255, 0), 1)
+    #cv2.imshow('test', img_contour)
 
     # For each contours detected, check if they are large enough and are rectangle
     cnts_rect = []
@@ -325,9 +347,14 @@ def detect_video(net, classes, capture, thresh_conf=0.5, thresh_nms=0.4, in_dim=
                     pts = np.float32([p[0] for p in cnt])
                     img_warp = four_point_transform(img_snip, pts)
                     img_warp = cv2.resize(img_warp, (card_width, card_height))
+                    img_card = img_warp[47:249, 22:294]
+                    img_card = Image.fromarray(img_card.astype('uint8'), 'RGB')
+                    card_hash = ih.phash(img_card, hash_size=32, highfreq_factor=4)
+                    print(card_hash - rift_hash)
                     #img_thresh, img_dilate, img_contour = find_card(img_snip)
                     #img_concat = np.concatenate((img_snip, img_contour), axis=1)
                     cv2.rectangle(img_warp, (22, 47), (294, 249), (0, 255, 0), 2)
+
                     cv2.imshow('card#%d' % i, img_warp)
                 else:
                     cv2.imshow('card#%d' % i, np.zeros((1, 1), dtype=np.uint8))
