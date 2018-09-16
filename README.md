@@ -92,3 +92,13 @@ Result? Suprisingly effective.
 <img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_detection_result_1.jpg" width="360"> <img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_detection_result_2.jpg" width="360"><img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_detection_result_3.jpg" width="360"> <img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_detection_result_4.png" width="360">
 
 They're of course slightly worse than annonymous detection and impractical for any large number of cardbase, but it was an interesting approach.
+
+------------------
+
+I've made a quick openCV algorithm to extract cards from the image, and it works decently well:
+
+<img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_detection_result_5.png" width="360">
+
+At the moment, it's fairly limited - the entire card must be shown without obstruction nor cropping, otherwise it won't detect at all.
+
+Unfortunately, there is very little use case for my trained network in this algorithm. It's just using contour detection and perceptual hashing to match the card.

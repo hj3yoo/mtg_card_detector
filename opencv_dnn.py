@@ -7,28 +7,57 @@ import sys
 import math
 import random
 from PIL import Image
-from .. import fetch_data
-from .. import transform_data
+import fetch_data
+import transform_data
 
 card_width = 315
 card_height = 440
 
-df = fetch_data.load_all_cards_text('%s/csv/rsv.csv' % transform_data.data_dir)
-df['art_hash'] = np.NaN
-for _, card_info in card_pool.iterrows():
-    img_name = '%s/card_img/png/%s/%s_%s.png' % (data_dir, card_info['set'], card_info['collector_number'],
-                                                 fetch_data.get_valid_filename(card_info['name']))
-    card_img = cv2.imread(img_name)
-    if card_img is None:
-        fetch_data.fetch_card_image(card_info, out_dir='%s/card_img/png/%s' % (data_dir, card_info['set']))
+
+def calc_image_hashes(card_pool, save_to=None):
+    card_pool['art_hash'] = np.NaN
+    for ind, card_info in card_pool.iterrows():
+        if ind % 100 == 0:
+            print(ind)
+        img_name = '%s/card_img/png/%s/%s_%s.png' % (transform_data.data_dir, card_info['set'],
+                                                     card_info['collector_number'],
+                                                     fetch_data.get_valid_filename(card_info['name']))
         card_img = cv2.imread(img_name)
-    if card_img is None:
-        print('WARNING: card %s is not found!' % img_name)
-    img_art = Image.fromarray(card_img[121:580, 63:685])
-    card_info['art_hash'] = ih.phash(img_card, hash_size=32, highfreq_factor=4)
+        if card_img is None:
+            fetch_data.fetch_card_image(card_info,
+                                        out_dir='%s/card_img/png/%s' % (transform_data.data_dir, card_info['set']))
+            card_img = cv2.imread(img_name)
+        if card_img is None:
+            print('WARNING: card %s is not found!' % img_name)
+        img_art = Image.fromarray(card_img[121:580, 63:685])
+        art_hash = ih.phash(img_art, hash_size=32, highfreq_factor=4)
+        card_pool.at[ind, 'art_hash'] = art_hash
+        img_card = Image.fromarray(card_img)
+        card_hash = ih.phash(img_card, hash_size=32, highfreq_factor=4)
+        card_pool.at[ind, 'card_hash'] = card_hash
+        card_pool = card_pool[['artist', 'border_color', 'collector_number', 'color_identity', 'colors', 'flavor_text',
+                               'image_uris', 'mana_cost', 'legalities', 'name', 'oracle_text', 'rarity', 'type_line',
+                               'set', 'set_name', 'power', 'toughness', 'art_hash', 'card_hash']]
+    if save_to is not None:
+        card_pool.to_pickle(save_to)
+    return card_pool
 
-print(df['art_hash'])
-
+'''
+df_list = []
+for set_name in fetch_data.all_set_list:
+    csv_name = '%s/csv/%s.csv' % (transform_data.data_dir, set_name)
+    df = fetch_data.load_all_cards_text(csv_name)
+    df_list.append(df)
+    #print(df)
+card_pool = pd.concat(df_list)
+card_pool.reset_index(drop=True, inplace=True)
+card_pool.drop('Unnamed: 0', axis=1, inplace=True, errors='ignore')
+card_pool = calc_image_hashes(card_pool, save_to='card_pool.pck')
+'''
+#csv_name = '%s/csv/%s.csv' % (transform_data.data_dir, 'rtr')
+#card_pool = fetch_data.load_all_cards_text(csv_name)
+#card_pool = calc_image_hashes(card_pool)
+card_pool = pd.read_pickle('card_pool.pck')
 
 
 # Disclaimer: majority of the basic framework in this file is modified from the following tutorial:
@@ -192,7 +221,7 @@ def remove_glare(img):
     return corrected
 
 
-def find_card(img, thresh_c=5, kernel_size=(3, 3), size_ratio=0.15):
+def find_card(img, thresh_c=5, kernel_size=(3, 3), size_ratio=0.3):
     # Typical pre-processing - grayscale, blurring, thresholding
     img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     img_blur = cv2.medianBlur(img_gray, 5)
@@ -225,35 +254,6 @@ def find_card(img, thresh_c=5, kernel_size=(3, 3), size_ratio=0.15):
 
     return cnts_rect
 
-    '''
-    #card_dim = [630, 880]
-    #for cnt in cnts_rect:
-    #    pts = np.float32([p[0] for p in cnt])
-    #    img_warp = four_point_transform(img, pts)
-        
-        # Check which side is longer
-        len_1 = math.sqrt((cnt[0][0][0] - cnt[1][0][0]) ** 2 + (cnt[0][0][1] - cnt[1][0][1]) ** 2)
-        len_2 = math.sqrt((cnt[0][0][0] - cnt[-1][0][0]) ** 2 + (cnt[0][0][1] - cnt[-1][0][1]) ** 2)
-        #print(len_1, len_2)
-
-        orig_corner = np.array([p[0] for p in cnt], dtype=np.float32)
-        if len_1 > len_2:
-            new_corner = np.array([[0, 0], [0, card_dim[1]], [card_dim[0], card_dim[1]], [card_dim[0], 0]], dtype=np.float32)
-        else:
-            new_corner = np.array([[0, 0], [card_dim[0], 0], [card_dim[0], card_dim[1]], [0, card_dim[1]]],
-                                  dtype=np.float32)
-
-        M = cv2.getPerspectiveTransform(orig_corner, new_corner)
-        img_warp = cv2.warpPerspective(img, M, (card_dim[0], card_dim[1]))
-        
-        #cv2.imshow('warp', img_warp)
-        #cv2.waitKey(0)
-    #img_contour = cv2.drawContours(img_contour, cnts_rect, -1, (0, 255, 0), 3)
-    #img_thresh = cv2.cvtColor(img_thresh, cv2.COLOR_GRAY2BGR)
-    #img_erode = cv2.cvtColor(img_erode, cv2.COLOR_GRAY2BGR)
-    #img_dilate = cv2.cvtColor(img_dilate, cv2.COLOR_GRAY2BGR)
-    #return img_thresh, img_erode, img_contour
-    '''
 
 def detect_frame(net, classes, img, thresh_conf=0.5, thresh_nms=0.4, in_dim=(416, 416), display=True, out_path=None):
     img_copy = img.copy()
@@ -347,14 +347,32 @@ def detect_video(net, classes, capture, thresh_conf=0.5, thresh_nms=0.4, in_dim=
                     pts = np.float32([p[0] for p in cnt])
                     img_warp = four_point_transform(img_snip, pts)
                     img_warp = cv2.resize(img_warp, (card_width, card_height))
-                    img_card = img_warp[47:249, 22:294]
-                    img_card = Image.fromarray(img_card.astype('uint8'), 'RGB')
+                    '''
+                    img_art = img_warp[47:249, 22:294]
+                    img_art = Image.fromarray(img_art.astype('uint8'), 'RGB')
+                    art_hash = ih.phash(img_art, hash_size=32, highfreq_factor=4)
+                    card_pool['hash_diff'] = card_pool['art_hash'] - art_hash
+                    min_cards = card_pool[card_pool['hash_diff'] == min(card_pool['hash_diff'])]
+                    guttersnipe = card_pool[card_pool['name'] == 'Cyclonic Rift']
+                    diff = guttersnipe['art_hash'] - art_hash
+                    print(diff)
+                    card_name = min_cards.iloc[0]['name']
+                    #print(min_cards.iloc[0]['name'], min_cards.iloc[0]['hash_diff'])
+                    '''
+                    img_card = Image.fromarray(img_warp.astype('uint8'), 'RGB')
                     card_hash = ih.phash(img_card, hash_size=32, highfreq_factor=4)
-                    print(card_hash - rift_hash)
+                    card_pool['hash_diff'] = card_pool['card_hash'] - card_hash
+                    min_cards = card_pool[card_pool['hash_diff'] == min(card_pool['hash_diff'])]
+                    card_name = min_cards.iloc[0]['name']
+                    hash_diff = min_cards.iloc[0]['hash_diff']
+                    #guttersnipe = card_pool[card_pool['name'] == 'Cyclonic Rift']
+                    #diff = guttersnipe['card_hash'] - card_hash
+                    #print(diff)
                     #img_thresh, img_dilate, img_contour = find_card(img_snip)
                     #img_concat = np.concatenate((img_snip, img_contour), axis=1)
                     cv2.rectangle(img_warp, (22, 47), (294, 249), (0, 255, 0), 2)
-
+                    cv2.putText(img_warp, card_name + ', ' + str(hash_diff), (0, 50),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
                     cv2.imshow('card#%d' % i, img_warp)
                 else:
                     cv2.imshow('card#%d' % i, np.zeros((1, 1), dtype=np.uint8))
@@ -376,7 +394,7 @@ def detect_video(net, classes, capture, thresh_conf=0.5, thresh_nms=0.4, in_dim=
 
 def main():
     # Specify paths for all necessary files
-    test_path = os.path.abspath('../data/test4.mp4')
+    test_path = os.path.abspath('test_file/test4.mp4')
     #weight_path = 'backup/tiny_yolo_10_39500.weights'
     #cfg_path = 'cfg/tiny_yolo_10.cfg'
     #class_path = "data/obj_10.names"
