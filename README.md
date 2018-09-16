@@ -89,6 +89,6 @@ I tried to do an alternate approach - instead of making model identify cards as 
 
 Result? Suprisingly effective.
 
-<img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_detection_result_1.jpg" width="360"> <img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_decision_result_2.jpg" width="360"><img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_detection_result_3.jpg" width="360"> <img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_decision_result_4.png" width="360">
+<img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_detection_result_1.jpg" width="360"> <img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_detection_result_2.jpg" width="360"><img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_detection_result_3.jpg" width="360"> <img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_detection_result_4.png" width="360">
 
 They're of course slightly worse than annonymous detection and impractical for any large number of cardbase, but it was an interesting approach.

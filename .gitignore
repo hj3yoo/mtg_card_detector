@@ -2,7 +2,6 @@
 *.dSYM
 *.csv
 *.out
-*.png
 *.so
 mnist/
 caffe/
@@ -29,4 +28,3 @@ Thumbs.db
 cmake-build-debug/
 CMakeLists.txt
 
-*.weights
