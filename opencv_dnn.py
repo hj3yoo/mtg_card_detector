@@ -1,13 +1,88 @@
 import cv2
 import numpy as np
+import imagehash as ih
 import os
 import sys
 import math
+import random
 from operator import itemgetter
+
+card_width = 315
+card_height = 440
 
 
 # Disclaimer: majority of the basic framework in this file is modified from the following tutorial:
 # https://www.learnopencv.com/deep-learning-based-object-detection-using-yolov3-with-opencv-python-c/
+
+
+# www.pyimagesearch.com/2014/08/25/4-point-opencv-getperspective-transform-example/
+def order_points(pts):
+    # initialzie a list of coordinates that will be ordered
+    # such that the first entry in the list is the top-left,
+    # the second entry is the top-right, the third is the
+    # bottom-right, and the fourth is the bottom-left
+    rect = np.zeros((4, 2), dtype="float32")
+
+    # the top-left point will have the smallest sum, whereas
+    # the bottom-right point will have the largest sum
+    s = pts.sum(axis=1)
+    rect[0] = pts[np.argmin(s)]
+    rect[2] = pts[np.argmax(s)]
+
+    # now, compute the difference between the points, the
+    # top-right point will have the smallest difference,
+    # whereas the bottom-left will have the largest difference
+    diff = np.diff(pts, axis=1)
+    rect[1] = pts[np.argmin(diff)]
+    rect[3] = pts[np.argmax(diff)]
+
+    # return the ordered coordinates
+    return rect
+
+
+def four_point_transform(image, pts):
+    # obtain a consistent order of the points and unpack them
+    # individually
+    rect = order_points(pts)
+    (tl, tr, br, bl) = rect
+
+    # compute the width of the new image, which will be the
+    # maximum distance between bottom-right and bottom-left
+    # x-coordiates or the top-right and top-left x-coordinates
+    widthA = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
+    widthB = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
+    maxWidth = max(int(widthA), int(widthB))
+
+    # compute the height of the new image, which will be the
+    # maximum distance between the top-right and bottom-right
+    # y-coordinates or the top-left and bottom-left y-coordinates
+    heightA = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
+    heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
+    maxHeight = max(int(heightA), int(heightB))
+
+    # now that we have the dimensions of the new image, construct
+    # the set of destination points to obtain a "birds eye view",
+    # (i.e. top-down view) of the image, again specifying points
+    # in the top-left, top-right, bottom-right, and bottom-left
+    # order
+    dst = np.array([
+        [0, 0],
+        [maxWidth - 1, 0],
+        [maxWidth - 1, maxHeight - 1],
+        [0, maxHeight - 1]], dtype="float32")
+
+    # compute the perspective transform matrix and then apply it
+    M = cv2.getPerspectiveTransform(rect, dst)
+    warped = cv2.warpPerspective(image, M, (maxWidth, maxHeight))
+
+    # If the image is horizontally long, rotate it by 90
+    if maxWidth > maxHeight:
+        center = (maxHeight / 2, maxHeight / 2)
+        M_rot = cv2.getRotationMatrix2D(center, 270, 1.0)
+        warped = cv2.warpAffine(warped, M_rot, (maxHeight, maxWidth))
+
+    # return the warped image
+    return warped
 
 
 # Get the names of the output layers
@@ -22,6 +97,7 @@ def get_outputs_names(net):
 def post_process(frame, outs, thresh_conf, thresh_nms):
     frame_height = frame.shape[0]
     frame_width = frame.shape[1]
+
 
     # Scan through all the bounding boxes output from the network and keep only the
     # ones with high confidence scores. Assign the box's class label as the class with the highest score.
@@ -86,7 +162,7 @@ def remove_glare(img):
     # Set all brightness values, where the pixels are still saturated to 0.
     v[non_sat == 0] = 0
     # filter out very bright pixels.
-    glare = (v > 240) * 255
+    glare = (v > 200) * 255
 
     # Slightly increase the area for each pixel
     glare = cv2.dilate(glare.astype(np.uint8), disk)
@@ -96,74 +172,66 @@ def remove_glare(img):
     return corrected
 
 
-def find_card(img, thresh_val=80, blur_radius=None, dilate_radius=None, min_hyst=80, max_hyst=200, min_line_length=None, max_line_gap=None, debug=False):
-    # Default values
-    if blur_radius is None:
-        blur_radius = math.floor(min(img.shape[:2]) / 100 + 0.5) // 2 * 2 + 1  # Rounded to the nearest odd
-    if dilate_radius is None:
-        dilate_radius = math.floor(min(img.shape[:2]) / 67 + 0.5)
-    if min_line_length is None:
-        min_line_length = min(img.shape[:2]) / 3
-    if max_line_gap is None:
-        max_line_gap = min(img.shape[:2]) / 10
-
-    thresh_radius = math.floor(min(img.shape[:2]) / 50 + 0.5) // 2 * 2 + 1  # Rounded to the nearest odd
-
-    print(blur_radius, dilate_radius, thresh_radius, min_line_length, max_line_gap)
-    '''
-    blur_radius = 3
-    dilate_radius = 3
-    thresh_radius = 3
-    min_line_length = 5
-    max_line_gap = 5
-    '''
-
+def find_card(img, thresh_c=5, kernel_size=(3, 3), size_ratio=0.3):
+    # Typical pre-processing - grayscale, blurring, thresholding
     img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    # Median blur better removes background textures than Gaussian blur
-    img_blur = cv2.medianBlur(img_gray, blur_radius)
-    # Truncate the bright area while detecting the border
-    img_thresh = cv2.adaptiveThreshold(img_blur, 128, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, thresh_radius, 5)
-    # _, img_thresh = cv2.threshold(img_blur, thresh_val, 255, cv2.THRESH_TRUNC)
+    img_blur = cv2.medianBlur(img_gray, 5)
+    img_thresh = cv2.adaptiveThreshold(img_blur, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 5, thresh_c)
 
-    # Dilate the image to emphasize thick borders around the card
-    kernel_dilate = np.ones((dilate_radius, dilate_radius), np.uint8)
-    img_dilate = cv2.dilate(img_thresh, kernel_dilate, iterations=1)
-    img_dilate = cv2.erode(img_dilate, kernel_dilate, iterations=1)
+    # Dilute the image, then erode them to remove minor noises
+    kernel = np.ones(kernel_size, np.uint8)
+    img_dilate = cv2.dilate(img_thresh, kernel, iterations=1)
+    img_erode = cv2.erode(img_dilate, kernel, iterations=1)
 
-    img_contour = img_dilate.copy()
-    _, contours, _ = cv2.findContours(img_contour, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    img_contour = cv2.cvtColor(img_contour, cv2.COLOR_GRAY2BGR)
-    img_contour = cv2.drawContours(img_contour, contours, -1, (128, 0, 0), 1)
+    # Find the contour
+    #img_contour = img_erode.copy()
+    _, cnts, hier = cv2.findContours(img_erode, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    if len(cnts) == 0:
+        print('no contours')
+        return []
+    #img_contour = cv2.cvtColor(img_contour, cv2.COLOR_GRAY2BGR)
 
-    # find the biggest area
-    c = max(contours, key=cv2.contourArea)
+    # For each contours detected, check if they are large enough and are rectangle
+    cnts_rect = []
+    ind_sort = sorted(range(len(cnts)), key=lambda i: cv2.contourArea(cnts[i]), reverse=True)
+    for i in range(len(cnts)):
+        size = cv2.contourArea(cnts[ind_sort[i]])
+        peri = cv2.arcLength(cnts[ind_sort[i]], True)
+        approx = cv2.approxPolyDP(cnts[ind_sort[i]], 0.04 * peri, True)
+        if size > img.shape[0] * img.shape[1] * size_ratio and len(approx) == 4:
+            cnts_rect.append(approx)
 
-    x, y, w, h = cv2.boundingRect(c)
-    # draw the book contour (in green)
-    img_contour = cv2.drawContours(img_contour, [c], -1, (0, 255, 0), 1)
+    return cnts_rect
 
-    # Canny edge - low minimum hysteresis to detect glowed area,
-    # and high maximum hysteresis to compensate for high false positives.
-    img_canny = cv2.Canny(img_dilate, min_hyst, max_hyst)
+    '''
+    #card_dim = [630, 880]
+    #for cnt in cnts_rect:
+    #    pts = np.float32([p[0] for p in cnt])
+    #    img_warp = four_point_transform(img, pts)
+        
+        # Check which side is longer
+        len_1 = math.sqrt((cnt[0][0][0] - cnt[1][0][0]) ** 2 + (cnt[0][0][1] - cnt[1][0][1]) ** 2)
+        len_2 = math.sqrt((cnt[0][0][0] - cnt[-1][0][0]) ** 2 + (cnt[0][0][1] - cnt[-1][0][1]) ** 2)
+        #print(len_1, len_2)
 
-    detected_lines = cv2.HoughLinesP(img_dilate, 1, np.pi / 180, threshold=300,
-                                     minLineLength=min_line_length,
-                                     maxLineGap=max_line_gap)
-    card_found = detected_lines is not None
-    if card_found:
-        print(len(detected_lines))
+        orig_corner = np.array([p[0] for p in cnt], dtype=np.float32)
+        if len_1 > len_2:
+            new_corner = np.array([[0, 0], [0, card_dim[1]], [card_dim[0], card_dim[1]], [card_dim[0], 0]], dtype=np.float32)
+        else:
+            new_corner = np.array([[0, 0], [card_dim[0], 0], [card_dim[0], card_dim[1]], [0, card_dim[1]]],
+                                  dtype=np.float32)
 
-    img_hough = cv2.cvtColor(img_canny.copy(), cv2.COLOR_GRAY2BGR)
-    if card_found:
-        for line in detected_lines:
-            x1, y1, x2, y2 = line[0]
-            cv2.line(img_hough, (x1, y1), (x2, y2), (0, 0, 255), 1)
-
-    img_thresh = cv2.cvtColor(img_thresh, cv2.COLOR_GRAY2BGR)
-    img_dilate = cv2.cvtColor(img_dilate, cv2.COLOR_GRAY2BGR)
-    #img_canny = cv2.cvtColor(img_canny, cv2.COLOR_GRAY2BGR)
-    return img_thresh, img_dilate, img_contour, img_hough
-
+        M = cv2.getPerspectiveTransform(orig_corner, new_corner)
+        img_warp = cv2.warpPerspective(img, M, (card_dim[0], card_dim[1]))
+        
+        #cv2.imshow('warp', img_warp)
+        #cv2.waitKey(0)
+    #img_contour = cv2.drawContours(img_contour, cnts_rect, -1, (0, 255, 0), 3)
+    #img_thresh = cv2.cvtColor(img_thresh, cv2.COLOR_GRAY2BGR)
+    #img_erode = cv2.cvtColor(img_erode, cv2.COLOR_GRAY2BGR)
+    #img_dilate = cv2.cvtColor(img_dilate, cv2.COLOR_GRAY2BGR)
+    #return img_thresh, img_erode, img_contour
+    '''
 
 def detect_frame(net, classes, img, thresh_conf=0.5, thresh_nms=0.4, in_dim=(416, 416), display=True, out_path=None):
     img_copy = img.copy()
@@ -192,9 +260,10 @@ def detect_frame(net, classes, img, thresh_conf=0.5, thresh_nms=0.4, in_dim=(416
     if out_path is not None:
         cv2.imwrite(out_path, img.astype(np.uint8))
     if display:
-        no_glare = remove_glare(img_copy)
-        img_concat = np.concatenate((img, no_glare), axis=1)
-        cv2.imshow('result', img_concat)
+        #no_glare = remove_glare(img_copy)
+        #img_concat = np.concatenate((img, no_glare), axis=1)
+        cv2.imshow('result', img)
+        '''
         for i in range(len(obj_list)):
             class_id, confidence, box = obj_list[i]
             left, top, width, height = box
@@ -203,6 +272,7 @@ def detect_frame(net, classes, img, thresh_conf=0.5, thresh_nms=0.4, in_dim=(416
             img_thresh, img_dilate, img_canny, img_hough = find_card(img_snip)
             img_concat = np.concatenate((img_snip, img_thresh, img_dilate, img_canny, img_hough), axis=1)
             cv2.imshow('feature#%d' % i, img_concat)
+        '''
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
@@ -225,23 +295,49 @@ def detect_video(net, classes, capture, thresh_conf=0.5, thresh_nms=0.4, in_dim=
         img = frame.copy()
         obj_list = detect_frame(net, classes, frame, thresh_conf=thresh_conf, thresh_nms=thresh_nms, in_dim=in_dim,
                                 display=False, out_path=None)
+        #cnts_rect = find_card(img)
         max_num_obj = max(max_num_obj, len(obj_list))
         if display:
-            no_glare = remove_glare(img)
-            img_concat = np.concatenate((frame, no_glare), axis=1)
-            cv2.imshow('result', img_concat)
+            img_result = frame.copy()
+            #img_result = cv2.drawContours(img_result, cnts_rect, -1, (0, 255, 0), 2)
+            #for i in range(len(cnts_rect)):
+            #    pts = np.float32([p[0] for p in cnts_rect[i]])
+            #    img_warp = four_point_transform(img, pts)
+            #    cv2.imshow('card#%d' % i, img_warp)
+            #for i in range(len(cnts_rect), max_num_obj):
+            #    cv2.imshow('card#%d' % i, np.zeros((1, 1), dtype=np.uint8))
+            #no_glare = remove_glare(img)
+            #img_thresh, img_erode, img_contour = find_card(no_glare)
+            #img_concat = np.concatenate((no_glare, img_contour), axis=1)
+
             for i in range(len(obj_list)):
                 class_id, confidence, box = obj_list[i]
                 left, top, width, height = box
-                img_snip = img[max(0, top):min(img.shape[0], top + height),
-                           max(0, left):min(img.shape[1], left + width)]
-                img_thresh, img_dilate, img_canny, img_hough = find_card(img_snip)
-                img_concat = np.concatenate((img_snip, img_thresh, img_dilate, img_canny, img_hough), axis=1)
-                cv2.imshow('feature#%d' % i, img_concat)
+                offset_ratio = 0.1
+                x1 = max(0, int(left - offset_ratio * width))
+                x2 = min(img.shape[1], int(left + (1 + offset_ratio) * width))
+                y1 = max(0, int(top - offset_ratio * height))
+                y2 = min(img.shape[0], int(top + (1 + offset_ratio) * height))
+                img_snip = img[y1:y2, x1:x2]
+                cnts = find_card(img_snip)
+                if len(cnts) > 0:
+                    cnt = cnts[-1]
+                    pts = np.float32([p[0] for p in cnt])
+                    img_warp = four_point_transform(img_snip, pts)
+                    img_warp = cv2.resize(img_warp, (card_width, card_height))
+                    #img_thresh, img_dilate, img_contour = find_card(img_snip)
+                    #img_concat = np.concatenate((img_snip, img_contour), axis=1)
+                    cv2.rectangle(img_warp, (22, 47), (294, 249), (0, 255, 0), 2)
+                    cv2.imshow('card#%d' % i, img_warp)
+                else:
+                    cv2.imshow('card#%d' % i, np.zeros((1, 1), dtype=np.uint8))
             for i in range(len(obj_list), max_num_obj):
-                cv2.imshow('feature#%d' % i, np.zeros((1, 1), dtype=np.uint8))
-            if len(obj_list) > 0:
-                cv2.waitKey(0)
+                cv2.imshow('card#%d' % i, np.zeros((1, 1), dtype=np.uint8))
+            cv2.imshow('result', img_result)
+            #if len(obj_list) > 0:
+            #    cv2.waitKey(0)
+
+
         if out_path is not None:
             vid_writer.write(frame.astype(np.uint8))
         cv2.waitKey(1)
@@ -253,10 +349,13 @@ def detect_video(net, classes, capture, thresh_conf=0.5, thresh_nms=0.4, in_dim=
 
 def main():
     # Specify paths for all necessary files
-    test_path = os.path.abspath('../data/test1.jpg')
+    test_path = os.path.abspath('../data/test4.mp4')
+    #weight_path = 'backup/tiny_yolo_10_39500.weights'
+    #cfg_path = 'cfg/tiny_yolo_10.cfg'
+    #class_path = "data/obj_10.names"
     weight_path = 'weights/second_general/tiny_yolo_final.weights'
     cfg_path = 'cfg/tiny_yolo.cfg'
-    class_path = "data/obj.names"
+    class_path = 'data/obj.names'
     out_dir = 'out'
     if not os.path.isfile(test_path):
         print('The test file %s doesn\'t exist!' % os.path.abspath(test_path))
@@ -270,6 +369,9 @@ def main():
     if not os.path.isfile(class_path):
         print('The class file %s doesn\'t exist!' % os.path.abspath(test_path))
         return
+
+    thresh_conf = 0.01
+    thresh_nms = 0.8
 
     # Setup
     # Read class names from text file
@@ -290,10 +392,10 @@ def main():
 
     if test_ext in ['jpg', 'jpeg', 'bmp', 'png', 'tiff']:
         img = cv2.imread(test_path)
-        detect_frame(net, classes, img, out_path=out_path)
+        detect_frame(net, classes, img, out_path=out_path, thresh_conf=thresh_conf, thresh_nms=thresh_nms)
     else:
-        capture = cv2.VideoCapture(test_path)
-        detect_video(net, classes, capture, out_path=out_path)
+        capture = cv2.VideoCapture(0)
+        detect_video(net, classes, capture, out_path=out_path, thresh_conf=thresh_conf, thresh_nms=thresh_nms)
         capture.release()
     pass
 

@@ -80,3 +80,15 @@ I suppose there is a poor man's alternative - feed individual frames from the vi
 --------------------
 
 Thankfully, OpenCV had an implementation for DNN, which supports YOLO as well. They have done quite an amazing job, and the speed isn't too bad, either. I can score about 20~25fps on my tiny YOLO, without using GPU.
+
+
+## Sept 15th, 2018
+--------------------
+
+I tried to do an alternate approach - instead of making model identify cards as annonymous, train the model for EVERY single card. As you may imagine, this isn't sustainable for 10000+ different cards that exists in MTG, but I thought it would be reasonable for classifying 10 different cards.
+
+Result? Suprisingly effective.
+
+<img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_detection_result_1.jpg" width="360"> <img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_decision_result_2.jpg" width="360"><img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_detection_result_3.jpg" width="360"> <img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_decision_result_4.jpg" width="360">
+
+They're of course slightly worse than annonymous detection (notice how I used white background, too) and impractical for any large number of cardbase, but it was an interesting approach.
