@@ -102,3 +102,11 @@ I've made a quick openCV algorithm to extract cards from the image, and it works
 At the moment, it's fairly limited - the entire card must be shown without obstruction nor cropping, otherwise it won't detect at all.
 
 Unfortunately, there is very little use case for my trained network in this algorithm. It's just using contour detection and perceptual hashing to match the card.
+
+
+## Sept 16th, 2018
+--------------------
+
+I've tweaked the openCV algorithm from yesterday and ran for a demo:
+
+https://www.youtube.com/watch?v=BZkRZDyhMRE&feature=youtu.be

@@ -6,6 +6,8 @@ import os
 import sys
 import math
 import random
+import collections
+from operator import itemgetter
 import time
 from PIL import Image
 import fetch_data
@@ -140,7 +142,6 @@ def post_process(frame, outs, thresh_conf, thresh_nms):
             class_id = np.argmax(scores)
             confidence = scores[class_id]
             if confidence > thresh_conf:
-                #print(detection[0:3])
                 center_x = int(detection[0] * frame_width)
                 center_y = int(detection[1] * frame_height)
                 width = int(detection[2] * frame_width)
@@ -227,7 +228,7 @@ def find_card(img, thresh_c=5, kernel_size=(3, 3), size_ratio=0.2):
     # For each contours detected, check if they are large enough and are rectangle
     cnts_rect = []
     ind_sort = sorted(range(len(cnts)), key=lambda i: cv2.contourArea(cnts[i]), reverse=True)
-    for i in range(len(cnts)):
+    for i in range(min(len(cnts), 5)):  # The card should be within top 5 largest contour
         size = cv2.contourArea(cnts[ind_sort[i]])
         peri = cv2.arcLength(cnts[ind_sort[i]], True)
         approx = cv2.approxPolyDP(cnts[ind_sort[i]], 0.04 * peri, True)
@@ -237,7 +238,49 @@ def find_card(img, thresh_c=5, kernel_size=(3, 3), size_ratio=0.2):
     return cnts_rect
 
 
-def detect_frame(net, classes, img, thresh_conf=0.1, thresh_nms=0.4, in_dim=(416, 416), out_path=None, display=True,
+def draw_card_graph(exist_cards, card_pool, f_len):
+    w_card = 63
+    h_card = 88
+    gap = 25
+    gap_sm = 10
+    w_bar = 300
+    h_bar = 12
+    txt_scale = 0.8
+    n_cards_p_col = 4
+    w_img = gap + (w_card + gap + w_bar + gap) * 2
+    #h_img = gap + (h_card + gap) * n_cards_p_col
+    h_img = 480
+    img_graph = np.zeros((h_img, w_img, 3), dtype=np.uint8)
+    x_anchor = gap
+    y_anchor = gap
+
+    i = 0
+    for key, val in sorted(exist_cards.items(), key=itemgetter(1), reverse=True)[:n_cards_p_col * 2]:
+        card_name = key[:key.find('(') - 1]
+        card_set = key[key.find('(') + 1:key.find(')')]
+        confidence = sum(val) / f_len
+        card_info = card_pool[(card_pool['name'] == card_name) & (card_pool['set'] == card_set)].iloc[0]
+        img_name = '%s/card_img/tiny/%s/%s_%s.png' % (transform_data.data_dir, card_info['set'],
+                                                     card_info['collector_number'],
+                                                     fetch_data.get_valid_filename(card_info['name']))
+        card_img = cv2.imread(img_name)
+        img_graph[y_anchor:y_anchor + h_card, x_anchor:x_anchor + w_card] = card_img
+        cv2.putText(img_graph, '%s (%s)' % (card_name, card_set),
+                    (x_anchor + w_card + gap, y_anchor + gap_sm + int(txt_scale * 25)), cv2.FONT_HERSHEY_SIMPLEX,
+                    txt_scale, (255, 255, 255), 1)
+        cv2.rectangle(img_graph, (x_anchor + w_card + gap, y_anchor + h_card - (gap_sm + h_bar)),
+                      (x_anchor + w_card + gap + int(w_bar * confidence), y_anchor + h_card - gap_sm), (0, 255, 0),
+                      thickness=cv2.FILLED)
+        y_anchor += h_card + gap
+        i += 1
+        if i % n_cards_p_col == 0:
+            x_anchor += w_card + gap + w_bar + gap
+            y_anchor = gap
+        pass
+    return img_graph
+
+
+def detect_frame(net, classes, img, card_pool, thresh_conf=0.5, thresh_nms=0.4, in_dim=(416, 416), out_path=None, display=True,
                  debug=False):
     img_copy = img.copy()
     # Create a 4D blob from a frame.
@@ -270,7 +313,7 @@ def detect_frame(net, classes, img, thresh_conf=0.1, thresh_nms=0.4, in_dim=(416
     bounding box. Find the largest rectangular contour from the region of interest, and identify the card by  
     comparing the perceptual hashing of the image with the other cards' image from the database.
     '''
-    card_name_list = []
+    det_cards = []
     for i in range(len(obj_list)):
         _, _, box = obj_list[i]
         left, top, width, height = box
@@ -300,7 +343,8 @@ def detect_frame(net, classes, img, thresh_conf=0.1, thresh_nms=0.4, in_dim=(416
             card_pool['hash_diff'] = card_pool['card_hash'] - card_hash
             min_cards = card_pool[card_pool['hash_diff'] == min(card_pool['hash_diff'])]
             card_name = min_cards.iloc[0]['name']
-            card_name_list.append(card_name)
+            card_set = min_cards.iloc[0]['set']
+            det_cards.append((card_name, card_set))
             hash_diff = min_cards.iloc[0]['hash_diff']
 
             # Display the result
@@ -308,7 +352,7 @@ def detect_frame(net, classes, img, thresh_conf=0.1, thresh_nms=0.4, in_dim=(416
                 # cv2.rectangle(img_warp, (22, 47), (294, 249), (0, 255, 0), 2)
                 cv2.putText(img_warp, card_name + ', ' + str(hash_diff), (0, 50),
                             cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-            cv2.putText(img_result, card_name , (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+            cv2.putText(img_result, card_name, (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
             if debug:
                 cv2.imshow('card#%d' % i, img_warp)
         elif debug:
@@ -317,44 +361,81 @@ def detect_frame(net, classes, img, thresh_conf=0.1, thresh_nms=0.4, in_dim=(416
     if out_path is not None:
         cv2.imwrite(out_path, img_result.astype(np.uint8))
 
-    return obj_list, card_name_list, img_result
+    return obj_list, det_cards, img_result
 
 
-def detect_video(net, classes, capture, thresh_conf=0.5, thresh_nms=0.4, in_dim=(416, 416), out_path=None, display=True,
-                 debug=False):
+def detect_video(net, classes, capture, card_pool, thresh_conf=0.5, thresh_nms=0.4, in_dim=(416, 416), out_path=None,
+                 display=True, debug=False):
     if out_path is not None:
-        vid_writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), 30,
-                                     (round(capture.get(cv2.CAP_PROP_FRAME_WIDTH)),
-                                      round(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))))
+        img_graph = draw_card_graph({}, None, -1)  # Black image of the graph just to get the dimension
+        width = round(capture.get(cv2.CAP_PROP_FRAME_WIDTH)) + img_graph.shape[1]
+        height = max(round(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)), img_graph.shape[0])
+        vid_writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*'MJPG'), 10.0, (width, height))
     max_num_obj = 0
-    while True:
-        start_time = time.time()
-        ret, frame = capture.read()
-        if not ret:
-            # End of video
-            print("End of video. Press any key to exit")
-            cv2.waitKey(0)
-            break
-        # Use the YOLO model to identify each cards annonymously
-        obj_list, card_name_list, img_result = detect_frame(net, classes, frame, thresh_conf=thresh_conf,
-                                                            thresh_nms=thresh_nms, in_dim=in_dim, out_path=None,
-                                                            display=display, debug=debug)
-        if debug:
-            max_num_obj = max(max_num_obj, len(obj_list))
-            for i in range(len(obj_list), max_num_obj):
-                cv2.imshow('card#%d' % i, np.zeros((1, 1), dtype=np.uint8))
-        if display:
-            cv2.imshow('result', img_result)
+    f_len = 10  # number of frames to consider to check for existing cards
+    exist_cards = {}
+    try:
+        while True:
+            ret, frame = capture.read()
+            start_time = time.time()
+            if not ret:
+                # End of video
+                print("End of video. Press any key to exit")
+                cv2.waitKey(0)
+                break
+            # Use the YOLO model to identify each cards annonymously
+            obj_list, det_cards, img_result = detect_frame(net, classes, frame, card_pool, thresh_conf=thresh_conf,
+                                                           thresh_nms=thresh_nms, in_dim=in_dim, out_path=None,
+                                                           display=display, debug=debug)
 
-        elapsed_ms = (time.time() - start_time) * 1000
-        print('Elapsed time: %.2f ms' % elapsed_ms)
+            # If the card was already detected in the previous frame, append 1 to the list
+            # If the card previously detected was not found in this trame, append 0 to the list
+            # If the card wasn't previously detected, make a new list and add 1 to it
+            # If the same card is detected multiple times in the same frame, keep track of the duplicates
+            # The confidence will be calculated based on the number of frames the card was detected for
+            det_cards_count = collections.Counter(det_cards).items()
+            det_cards_list = []
+            for card, count in det_cards_count:
+                card_name, card_set = card
+                for i in range(count): 1
+                key = '%s (%s) #%d' % (card_name, card_set, i + 1)
+                det_cards_list.append(key)
+            gone = []
+            for key, val in exist_cards.items():
+                if key in det_cards_list:
+                    exist_cards[key] = exist_cards[key][1 - f_len:] + [1]
+                else:
+                    exist_cards[key] = exist_cards[key][1 - f_len:] + [0]
+                if len(val) == f_len and sum(val) == 0:
+                    gone.append(key)
+            for key in det_cards_list:
+                if key not in exist_cards.keys():
+                    exist_cards[key] = [1]
+            for key in gone:
+                exist_cards.pop(key)
+            img_graph = draw_card_graph(exist_cards, card_pool, f_len)
+
+            if debug:
+                max_num_obj = max(max_num_obj, len(obj_list))
+                for i in range(len(obj_list), max_num_obj):
+                    cv2.imshow('card#%d' % i, np.zeros((1, 1), dtype=np.uint8))
+
+            img_save = np.zeros((height, width, 3), dtype=np.uint8)
+            img_save[0:img_result.shape[0], 0:img_result.shape[1]] = img_result
+            img_save[0:img_graph.shape[0], img_result.shape[1]:img_result.shape[1] + img_graph.shape[1]] = img_graph
+            if display:
+                cv2.imshow('result', img_save)
+
+            elapsed_ms = (time.time() - start_time) * 1000
+            print('Elapsed time: %.2f ms' % elapsed_ms)
+            if out_path is not None:
+                vid_writer.write(img_save.astype(np.uint8))
+            cv2.waitKey(1)
+    except KeyboardInterrupt:
+        capture.release()
         if out_path is not None:
-            vid_writer.write(img_result.astype(np.uint8))
-        cv2.waitKey(1)
-
-    if out_path is not None:
-        vid_writer.release()
-    cv2.destroyAllWindows()
+            vid_writer.release()
+        cv2.destroyAllWindows()
 
 
 def main():
@@ -380,38 +461,7 @@ def main():
         print('The class file %s doesn\'t exist!' % os.path.abspath(test_path))
         return
 
-    thresh_conf = 0.01
-    thresh_nms = 0.8
 
-    # Setup
-    # Read class names from text file
-    with open(class_path, 'r') as f:
-        classes = [line.strip() for line in f.readlines()]
-    # Load up the neural net using the config and weights
-    net = cv2.dnn.readNetFromDarknet(cfg_path, weight_path)
-    net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-    net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
-
-    # Save the detection result if out_dir is provided
-    if out_dir is None or out_dir == '':
-        out_path = None
-    else:
-        out_path = out_dir + '/' + os.path.split(test_path)[1]
-    # Check if test file is image or video
-    test_ext = test_path[test_path.find('.') + 1:]
-
-    if test_ext in ['jpg', 'jpeg', 'bmp', 'png', 'tiff']:
-        img = cv2.imread(test_path)
-        detect_frame(net, classes, img, out_path=out_path, thresh_conf=thresh_conf, thresh_nms=thresh_nms)
-    else:
-        capture = cv2.VideoCapture(0)
-        detect_video(net, classes, capture, out_path=out_path, thresh_conf=thresh_conf, thresh_nms=thresh_nms,
-                     display=False, debug=False)
-        capture.release()
-    pass
-
-
-if __name__ == '__main__':
     '''
     df_list = []
     for set_name in fetch_data.all_set_list:
@@ -428,4 +478,40 @@ if __name__ == '__main__':
     # card_pool = fetch_data.load_all_cards_text(csv_name)
     # card_pool = calc_image_hashes(card_pool)
     card_pool = pd.read_pickle('card_pool.pck')
+    card_pool = card_pool[(card_pool['set'] == 'rtr') | (card_pool['set'] == 'isd')]
+    card_pool = card_pool[['name', 'set', 'collector_number', 'card_hash']]
+
+    thresh_conf = 0.01
+    thresh_nms = 0.8
+
+    # Setup
+    # Read class names from text file
+    with open(class_path, 'r') as f:
+        classes = [line.strip() for line in f.readlines()]
+    # Load up the neural net using the config and weights
+    net = cv2.dnn.readNetFromDarknet(cfg_path, weight_path)
+    net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+    net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+
+    # Save the detection result if out_dir is provided
+    if out_dir is None or out_dir == '':
+        out_path = None
+    else:
+        f_name = os.path.split(test_path)[1]
+        out_path = out_dir + '/' + f_name[:f_name.find('.')] + '.avi'
+    # Check if test file is image or video
+    test_ext = test_path[test_path.find('.') + 1:]
+
+    if test_ext in ['jpg', 'jpeg', 'bmp', 'png', 'tiff']:
+        img = cv2.imread(test_path)
+        detect_frame(net, classes, img, card_pool, out_path=out_path, thresh_conf=thresh_conf, thresh_nms=thresh_nms)
+    else:
+        capture = cv2.VideoCapture(0)
+        detect_video(net, classes, capture, card_pool, out_path=out_path, thresh_conf=thresh_conf, thresh_nms=thresh_nms,
+                     display=True, debug=False)
+        capture.release()
+    pass
+
+
+if __name__ == '__main__':
     main()
