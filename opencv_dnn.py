@@ -6,6 +6,7 @@ import os
 import sys
 import math
 import random
+import time
 from PIL import Image
 import fetch_data
 import transform_data
@@ -29,7 +30,7 @@ def calc_image_hashes(card_pool, save_to=None):
             card_img = cv2.imread(img_name)
         if card_img is None:
             print('WARNING: card %s is not found!' % img_name)
-        img_art = Image.fromarray(card_img[121:580, 63:685])
+        img_art = Image.fromarray(card_img[121:580, 63:685])  # For 745*1040 size card image
         art_hash = ih.phash(img_art, hash_size=32, highfreq_factor=4)
         card_pool.at[ind, 'art_hash'] = art_hash
         img_card = Image.fromarray(card_img)
@@ -41,27 +42,6 @@ def calc_image_hashes(card_pool, save_to=None):
     if save_to is not None:
         card_pool.to_pickle(save_to)
     return card_pool
-
-'''
-df_list = []
-for set_name in fetch_data.all_set_list:
-    csv_name = '%s/csv/%s.csv' % (transform_data.data_dir, set_name)
-    df = fetch_data.load_all_cards_text(csv_name)
-    df_list.append(df)
-    #print(df)
-card_pool = pd.concat(df_list)
-card_pool.reset_index(drop=True, inplace=True)
-card_pool.drop('Unnamed: 0', axis=1, inplace=True, errors='ignore')
-card_pool = calc_image_hashes(card_pool, save_to='card_pool.pck')
-'''
-#csv_name = '%s/csv/%s.csv' % (transform_data.data_dir, 'rtr')
-#card_pool = fetch_data.load_all_cards_text(csv_name)
-#card_pool = calc_image_hashes(card_pool)
-card_pool = pd.read_pickle('card_pool.pck')
-
-
-# Disclaimer: majority of the basic framework in this file is modified from the following tutorial:
-# https://www.learnopencv.com/deep-learning-based-object-detection-using-yolov3-with-opencv-python-c/
 
 
 # www.pyimagesearch.com/2014/08/25/4-point-opencv-getperspective-transform-example/
@@ -89,6 +69,7 @@ def order_points(pts):
     return rect
 
 
+# www.pyimagesearch.com/2014/08/25/4-point-opencv-getperspective-transform-example/
 def four_point_transform(image, pts):
     # obtain a consistent order of the points and unpack them
     # individually
@@ -121,14 +102,14 @@ def four_point_transform(image, pts):
         [0, maxHeight - 1]], dtype="float32")
 
     # compute the perspective transform matrix and then apply it
-    M = cv2.getPerspectiveTransform(rect, dst)
-    warped = cv2.warpPerspective(image, M, (maxWidth, maxHeight))
+    mat = cv2.getPerspectiveTransform(rect, dst)
+    warped = cv2.warpPerspective(image, mat, (maxWidth, maxHeight))
 
     # If the image is horizontally long, rotate it by 90
     if maxWidth > maxHeight:
         center = (maxHeight / 2, maxHeight / 2)
-        M_rot = cv2.getRotationMatrix2D(center, 270, 1.0)
-        warped = cv2.warpAffine(warped, M_rot, (maxHeight, maxWidth))
+        mat_rot = cv2.getRotationMatrix2D(center, 270, 1.0)
+        warped = cv2.warpAffine(warped, mat_rot, (maxHeight, maxWidth))
 
     # return the warped image
     return warped
@@ -143,10 +124,10 @@ def get_outputs_names(net):
 
 
 # Remove the bounding boxes with low confidence using non-maxima suppression
+# https://www.learnopencv.com/deep-learning-based-object-detection-using-yolov3-with-opencv-python-c/
 def post_process(frame, outs, thresh_conf, thresh_nms):
     frame_height = frame.shape[0]
     frame_width = frame.shape[1]
-
 
     # Scan through all the bounding boxes output from the network and keep only the
     # ones with high confidence scores. Assign the box's class label as the class with the highest score.
@@ -159,6 +140,7 @@ def post_process(frame, outs, thresh_conf, thresh_nms):
             class_id = np.argmax(scores)
             confidence = scores[class_id]
             if confidence > thresh_conf:
+                #print(detection[0:3])
                 center_x = int(detection[0] * frame_width)
                 center_y = int(detection[1] * frame_height)
                 width = int(detection[2] * frame_width)
@@ -221,7 +203,7 @@ def remove_glare(img):
     return corrected
 
 
-def find_card(img, thresh_c=5, kernel_size=(3, 3), size_ratio=0.3):
+def find_card(img, thresh_c=5, kernel_size=(3, 3), size_ratio=0.2):
     # Typical pre-processing - grayscale, blurring, thresholding
     img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     img_blur = cv2.medianBlur(img_gray, 5)
@@ -255,7 +237,8 @@ def find_card(img, thresh_c=5, kernel_size=(3, 3), size_ratio=0.3):
     return cnts_rect
 
 
-def detect_frame(net, classes, img, thresh_conf=0.5, thresh_nms=0.4, in_dim=(416, 416), display=True, out_path=None):
+def detect_frame(net, classes, img, thresh_conf=0.1, thresh_nms=0.4, in_dim=(416, 416), out_path=None, display=True,
+                 debug=False):
     img_copy = img.copy()
     # Create a 4D blob from a frame.
     blob = cv2.dnn.blobFromImage(img, 1 / 255, in_dim, [0, 0, 0], 1, crop=False)
@@ -266,125 +249,107 @@ def detect_frame(net, classes, img, thresh_conf=0.5, thresh_nms=0.4, in_dim=(416
     # Runs the forward pass to get output of the output layers
     outs = net.forward(get_outputs_names(net))
 
+    img_result = img.copy()
+
     # Remove the bounding boxes with low confidence
     obj_list = post_process(img, outs, thresh_conf, thresh_nms)
     for obj in obj_list:
         class_id, confidence, box = obj
         left, top, width, height = box
-        draw_pred(img, class_id, classes, confidence, left, top, left + width, top + height)
+        draw_pred(img_result, class_id, classes, confidence, left, top, left + width, top + height)
 
     # Put efficiency information. The function getPerfProfile returns the
     # overall time for inference(t) and the timings for each of the layers(in layersTimes)
-    t, _ = net.getPerfProfile()
-    label = 'Inference time: %.2f ms' % (t * 1000.0 / cv2.getTickFrequency())
-    cv2.putText(img, label, (0, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255))
+    #if display:
+    #    t, _ = net.getPerfProfile()
+    #    label = 'Inference time: %.2f ms' % (t * 1000.0 / cv2.getTickFrequency())
+    #    cv2.putText(img_result, label, (0, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255))
+
+    '''
+    Assuming that the model has properly identified all cards, there should be 1 card that can be classified per
+    bounding box. Find the largest rectangular contour from the region of interest, and identify the card by  
+    comparing the perceptual hashing of the image with the other cards' image from the database.
+    '''
+    card_name_list = []
+    for i in range(len(obj_list)):
+        _, _, box = obj_list[i]
+        left, top, width, height = box
+        # Just in case the bounding box trimmed the edge of the cards, give it a bit of offset around the edge
+        offset_ratio = 0.1
+        x1 = max(0, int(left - offset_ratio * width))
+        x2 = min(img.shape[1], int(left + (1 + offset_ratio) * width))
+        y1 = max(0, int(top - offset_ratio * height))
+        y2 = min(img.shape[0], int(top + (1 + offset_ratio) * height))
+        img_snip = img[y1:y2, x1:x2]
+        cnts = find_card(img_snip)
+        if len(cnts) > 0:
+            cnt = cnts[0]  # The largest (rectangular) contour
+            pts = np.float32([p[0] for p in cnt])
+            img_warp = four_point_transform(img_snip, pts)
+            img_warp = cv2.resize(img_warp, (card_width, card_height))
+            '''
+            img_art = img_warp[47:249, 22:294]
+            img_art = Image.fromarray(img_art.astype('uint8'), 'RGB')
+            art_hash = ih.phash(img_art, hash_size=32, highfreq_factor=4)
+            card_pool['hash_diff'] = card_pool['art_hash'] - art_hash
+            min_cards = card_pool[card_pool['hash_diff'] == min(card_pool['hash_diff'])]
+            card_name = min_cards.iloc[0]['name']
+            '''
+            img_card = Image.fromarray(img_warp.astype('uint8'), 'RGB')
+            card_hash = ih.phash(img_card, hash_size=32, highfreq_factor=4)
+            card_pool['hash_diff'] = card_pool['card_hash'] - card_hash
+            min_cards = card_pool[card_pool['hash_diff'] == min(card_pool['hash_diff'])]
+            card_name = min_cards.iloc[0]['name']
+            card_name_list.append(card_name)
+            hash_diff = min_cards.iloc[0]['hash_diff']
+
+            # Display the result
+            if debug:
+                # cv2.rectangle(img_warp, (22, 47), (294, 249), (0, 255, 0), 2)
+                cv2.putText(img_warp, card_name + ', ' + str(hash_diff), (0, 50),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            cv2.putText(img_result, card_name , (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+            if debug:
+                cv2.imshow('card#%d' % i, img_warp)
+        elif debug:
+            cv2.imshow('card#%d' % i, np.zeros((1, 1), dtype=np.uint8))
 
     if out_path is not None:
-        cv2.imwrite(out_path, img.astype(np.uint8))
-    if display:
-        #no_glare = remove_glare(img_copy)
-        #img_concat = np.concatenate((img, no_glare), axis=1)
-        cv2.imshow('result', img)
-        '''
-        for i in range(len(obj_list)):
-            class_id, confidence, box = obj_list[i]
-            left, top, width, height = box
-            img_snip = img_copy[max(0, top):min(img.shape[0], top + height),
-                                max(0, left):min(img.shape[1], left + width)]
-            img_thresh, img_dilate, img_canny, img_hough = find_card(img_snip)
-            img_concat = np.concatenate((img_snip, img_thresh, img_dilate, img_canny, img_hough), axis=1)
-            cv2.imshow('feature#%d' % i, img_concat)
-        '''
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        cv2.imwrite(out_path, img_result.astype(np.uint8))
 
-    return obj_list
+    return obj_list, card_name_list, img_result
 
 
-def detect_video(net, classes, capture, thresh_conf=0.5, thresh_nms=0.4, in_dim=(416, 416), display=True, out_path=None):
+def detect_video(net, classes, capture, thresh_conf=0.5, thresh_nms=0.4, in_dim=(416, 416), out_path=None, display=True,
+                 debug=False):
     if out_path is not None:
         vid_writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), 30,
                                      (round(capture.get(cv2.CAP_PROP_FRAME_WIDTH)),
                                       round(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))))
     max_num_obj = 0
     while True:
+        start_time = time.time()
         ret, frame = capture.read()
         if not ret:
             # End of video
             print("End of video. Press any key to exit")
             cv2.waitKey(0)
             break
-        img = frame.copy()
-        obj_list = detect_frame(net, classes, frame, thresh_conf=thresh_conf, thresh_nms=thresh_nms, in_dim=in_dim,
-                                display=False, out_path=None)
-        #cnts_rect = find_card(img)
-        max_num_obj = max(max_num_obj, len(obj_list))
-        if display:
-            img_result = frame.copy()
-            #img_result = cv2.drawContours(img_result, cnts_rect, -1, (0, 255, 0), 2)
-            #for i in range(len(cnts_rect)):
-            #    pts = np.float32([p[0] for p in cnts_rect[i]])
-            #    img_warp = four_point_transform(img, pts)
-            #    cv2.imshow('card#%d' % i, img_warp)
-            #for i in range(len(cnts_rect), max_num_obj):
-            #    cv2.imshow('card#%d' % i, np.zeros((1, 1), dtype=np.uint8))
-            #no_glare = remove_glare(img)
-            #img_thresh, img_erode, img_contour = find_card(no_glare)
-            #img_concat = np.concatenate((no_glare, img_contour), axis=1)
-
-            for i in range(len(obj_list)):
-                class_id, confidence, box = obj_list[i]
-                left, top, width, height = box
-                offset_ratio = 0.1
-                x1 = max(0, int(left - offset_ratio * width))
-                x2 = min(img.shape[1], int(left + (1 + offset_ratio) * width))
-                y1 = max(0, int(top - offset_ratio * height))
-                y2 = min(img.shape[0], int(top + (1 + offset_ratio) * height))
-                img_snip = img[y1:y2, x1:x2]
-                cnts = find_card(img_snip)
-                if len(cnts) > 0:
-                    cnt = cnts[-1]
-                    pts = np.float32([p[0] for p in cnt])
-                    img_warp = four_point_transform(img_snip, pts)
-                    img_warp = cv2.resize(img_warp, (card_width, card_height))
-                    '''
-                    img_art = img_warp[47:249, 22:294]
-                    img_art = Image.fromarray(img_art.astype('uint8'), 'RGB')
-                    art_hash = ih.phash(img_art, hash_size=32, highfreq_factor=4)
-                    card_pool['hash_diff'] = card_pool['art_hash'] - art_hash
-                    min_cards = card_pool[card_pool['hash_diff'] == min(card_pool['hash_diff'])]
-                    guttersnipe = card_pool[card_pool['name'] == 'Cyclonic Rift']
-                    diff = guttersnipe['art_hash'] - art_hash
-                    print(diff)
-                    card_name = min_cards.iloc[0]['name']
-                    #print(min_cards.iloc[0]['name'], min_cards.iloc[0]['hash_diff'])
-                    '''
-                    img_card = Image.fromarray(img_warp.astype('uint8'), 'RGB')
-                    card_hash = ih.phash(img_card, hash_size=32, highfreq_factor=4)
-                    card_pool['hash_diff'] = card_pool['card_hash'] - card_hash
-                    min_cards = card_pool[card_pool['hash_diff'] == min(card_pool['hash_diff'])]
-                    card_name = min_cards.iloc[0]['name']
-                    hash_diff = min_cards.iloc[0]['hash_diff']
-                    #guttersnipe = card_pool[card_pool['name'] == 'Cyclonic Rift']
-                    #diff = guttersnipe['card_hash'] - card_hash
-                    #print(diff)
-                    #img_thresh, img_dilate, img_contour = find_card(img_snip)
-                    #img_concat = np.concatenate((img_snip, img_contour), axis=1)
-                    cv2.rectangle(img_warp, (22, 47), (294, 249), (0, 255, 0), 2)
-                    cv2.putText(img_warp, card_name + ', ' + str(hash_diff), (0, 50),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-                    cv2.imshow('card#%d' % i, img_warp)
-                else:
-                    cv2.imshow('card#%d' % i, np.zeros((1, 1), dtype=np.uint8))
+        # Use the YOLO model to identify each cards annonymously
+        obj_list, card_name_list, img_result = detect_frame(net, classes, frame, thresh_conf=thresh_conf,
+                                                            thresh_nms=thresh_nms, in_dim=in_dim, out_path=None,
+                                                            display=display, debug=debug)
+        if debug:
+            max_num_obj = max(max_num_obj, len(obj_list))
             for i in range(len(obj_list), max_num_obj):
                 cv2.imshow('card#%d' % i, np.zeros((1, 1), dtype=np.uint8))
+        if display:
             cv2.imshow('result', img_result)
-            #if len(obj_list) > 0:
-            #    cv2.waitKey(0)
 
-
+        elapsed_ms = (time.time() - start_time) * 1000
+        print('Elapsed time: %.2f ms' % elapsed_ms)
         if out_path is not None:
-            vid_writer.write(frame.astype(np.uint8))
+            vid_writer.write(img_result.astype(np.uint8))
         cv2.waitKey(1)
 
     if out_path is not None:
@@ -399,7 +364,7 @@ def main():
     #cfg_path = 'cfg/tiny_yolo_10.cfg'
     #class_path = "data/obj_10.names"
     weight_path = 'weights/second_general/tiny_yolo_final.weights'
-    cfg_path = 'cfg/tiny_yolo.cfg'
+    cfg_path = 'cfg/tiny_yolo_old.cfg'
     class_path = 'data/obj.names'
     out_dir = 'out'
     if not os.path.isfile(test_path):
@@ -440,10 +405,27 @@ def main():
         detect_frame(net, classes, img, out_path=out_path, thresh_conf=thresh_conf, thresh_nms=thresh_nms)
     else:
         capture = cv2.VideoCapture(0)
-        detect_video(net, classes, capture, out_path=out_path, thresh_conf=thresh_conf, thresh_nms=thresh_nms)
+        detect_video(net, classes, capture, out_path=out_path, thresh_conf=thresh_conf, thresh_nms=thresh_nms,
+                     display=False, debug=False)
         capture.release()
     pass
 
 
 if __name__ == '__main__':
+    '''
+    df_list = []
+    for set_name in fetch_data.all_set_list:
+        csv_name = '%s/csv/%s.csv' % (transform_data.data_dir, set_name)
+        df = fetch_data.load_all_cards_text(csv_name)
+        df_list.append(df)
+        #print(df)
+    card_pool = pd.concat(df_list)
+    card_pool.reset_index(drop=True, inplace=True)
+    card_pool.drop('Unnamed: 0', axis=1, inplace=True, errors='ignore')
+    card_pool = calc_image_hashes(card_pool, save_to='card_pool.pck')
+    '''
+    # csv_name = '%s/csv/%s.csv' % (transform_data.data_dir, 'rtr')
+    # card_pool = fetch_data.load_all_cards_text(csv_name)
+    # card_pool = calc_image_hashes(card_pool)
+    card_pool = pd.read_pickle('card_pool.pck')
     main()

@@ -97,7 +97,7 @@ They're of course slightly worse than annonymous detection and impractical for a
 
 I've made a quick openCV algorithm to extract cards from the image, and it works decently well:
 
-<img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_detection_result_5.png" width="360">
+<img src="https://github.com/hj3yoo/darknet/blob/master/figures/4_detection_result_5.jpg" width="360">
 
 At the moment, it's fairly limited - the entire card must be shown without obstruction nor cropping, otherwise it won't detect at all.
 

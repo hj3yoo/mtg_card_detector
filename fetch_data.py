@@ -1,4 +1,4 @@
-from urllib import request
+from urllib import request, error
 import ast
 import json
 import pandas as pd
@@ -7,10 +7,20 @@ import os
 import transform_data
 import time
 
-all_set_list = [
-                'mrd', 'dst', '5dn', 'chk', 'bok', 'sok', 'rav', 'gpt', 'dis', 'csp', 'tsp', 'plc', 'fut',
-                '10e', 'lrw', 'mor', 'shm', 'eve', 'ala', 'con', 'arb', 'm10', 'zen', 'wwk', 'roe', 'm11', 'som', 'mbs',
-                'nph', 'm12', 'isd', 'dka', 'avr', 'm13', 'rtr', 'gtc', 'dgm', 'm14', 'ths', 'bng', 'jou']
+all_set_list = [# Core & expansion sets with 2003 frame
+                'mrd', 'dst', '5dn', 'chk', 'bok', 'sok', 'rav', 'gpt', 'dis', 'csp', 'tsp', 'plc', 'fut', '10e', 'lrw',
+                'mor', 'shm', 'eve', 'ala', 'con', 'arb', 'm10', 'zen', 'wwk', 'roe', 'm11', 'som', 'mbs', 'nph', 'm12',
+                'isd', 'dka', 'avr', 'm13', 'rtr', 'gtc', 'dgm', 'm14', 'ths', 'bng', 'jou',
+                # Core & expansion sets with 2015 frame
+                'm15', 'ktk', 'frf', 'dtk', 'bfz', 'ogw', 'soi', 'emn', 'kld', 'aer', 'akh', 'hou', 'xln', 'rix', 'dom',
+                # Box sets
+                'evg', 'drb', 'dd2', 'ddc', 'td0', 'v09', 'ddd', 'h09', 'dde', 'dpa', 'v10', 'ddf', 'td0', 'pd2', 'ddg',
+                'cmd', 'v11', 'ddh', 'pd3', 'ddi', 'v12', 'ddj', 'cm1', 'td2', 'ddk', 'v13', 'ddl', 'c13', 'ddm', 'md1',
+                'v14', 'ddn', 'c14', 'ddo', 'v15', 'ddp', 'c15', 'ddq', 'v16', 'ddr', 'c16', 'pca', 'dds', 'cma', 'c17',
+                'ddt', 'v17', 'ddu', 'cm2', 'ss1', 'gs1', 'c18',
+                # Supplemental sets
+                'HOP', 'ARC', 'PC2', 'CNS', 'CN2', 'E01', 'E02', 'BBD'
+                ]
 
 
 def fetch_all_cards_text(url='https://api.scryfall.com/cards/search?q=layout:normal+format:modern+lang:en+frame:2003',
@@ -32,9 +42,9 @@ def fetch_all_cards_text(url='https://api.scryfall.com/cards/search?q=layout:nor
     df = pd.DataFrame.from_dict(cards)
 
     if csv_name != '':
-        df = df[['artist', 'border_color', 'collector_number', 'color_identity', 'colors', 'flavor_text', 'image_uris',
-                 'mana_cost', 'legalities', 'name', 'oracle_text', 'rarity', 'type_line', 'set', 'set_name', 'power',
-                 'toughness']]
+        #df = df[['artist', 'border_color', 'collector_number', 'color_identity', 'colors', 'flavor_text', 'image_uris',
+        #         'mana_cost', 'legalities', 'name', 'oracle_text', 'rarity', 'type_line', 'set', 'set_name', 'power',
+        #         'toughness']]
         #df.to_json(csv_name)
         df.to_csv(csv_name, sep=';')  # Comma doesn't work, since some columns are saved as a dict
 
@@ -72,18 +82,33 @@ def fetch_all_cards_image(df, out_dir='', size='png'):
 
 
 def fetch_card_image(row, out_dir='', size='png'):
-    if isinstance(row['image_uris'], str):  # For some reason, dict isn't being parsed in the previous step
-        png_url = ast.literal_eval(row['image_uris'])[size]
-    else:
-        png_url = row['image_uris'][size]
     if out_dir == '':
-        out_dir = 'data/%s/%s' % (size, row['set'])
+        out_dir = '%s/card_img/%s/%s' % (transform_data.data_dir, size, row['set'])
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
-    img_name = '%s/%s_%s.png' % (out_dir, row['collector_number'], get_valid_filename(row['name']))
-    if not os.path.isfile(img_name):
-        request.urlretrieve(png_url, filename=img_name)
-        print(img_name)
+
+    png_urls = []
+    card_names = []
+    if row['layout'] == 'transform' or row['layout'] == 'double_faced_token':
+        if isinstance(row['card_faces'], str):  # For some reason, dict isn't being parsed in the previous step
+            card_faces = ast.literal_eval(row['card_faces'])
+        else:
+            card_faces = row['card_faces']
+        for i in range(len(card_faces)):
+            png_urls.append(card_faces[i]['image_uris'][size])
+            card_names.append(get_valid_filename(card_faces[i]['name']))
+    else: #if row['layout'] == 'normal':
+        if isinstance(row['image_uris'], str):  # For some reason, dict isn't being parsed in the previous step
+            png_urls.append(ast.literal_eval(row['image_uris'])[size])
+        else:
+            png_urls.append(row['image_uris'][size])
+        card_names.append(get_valid_filename(row['name']))
+
+    for i in range(len(png_urls)):
+        img_name = '%s/%s_%s.png' % (out_dir, row['collector_number'], card_names[i])
+        if not os.path.isfile(img_name):
+            request.urlretrieve(png_urls[i], filename=img_name)
+            print(img_name)
 
 
 def main():
@@ -95,8 +120,8 @@ def main():
                                           % set_name, csv_name=csv_name)
         else:
             df = load_all_cards_text(csv_name)
-        time.sleep(1)
-        #fetch_all_cards_image(df, out_dir='../usb/data/png/%s' % set_name)
+        df.sort_values('collector_number')
+        fetch_all_cards_image(df, out_dir='%s/card_img/png/%s' % (transform_data.data_dir, set_name))
     #df = fetch_all_cards_text(url='https://api.scryfall.com/cards/search?q=layout:normal+lang:en+frame:2003',
     #                          csv_name='data/csv/all.csv')
     pass
