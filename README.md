@@ -4,7 +4,6 @@
 This is a fork of [Yolo-v3 and Yolo-v2 for Windows and Linux by AlexeyAB](https://github.com/AlexeyAB/darknet#how-to-compile-on-linux) for creating a custom model for [My MTG card detection project](https://github.com/hj3yoo/MTGCardDetector). 
 
 ## Day ~0: Sep 6th, 2018
----------------------
 
 Uploading all the progresses on the model training for the last few days.
 
@@ -29,7 +28,6 @@ Example of bad detections:
 The second and third problems should easily be solved by further augmenting the dataset with random lighting and image skew. I'll have to think more about the first problem, though.
 
 ## Sept 7th, 2018
------------------------
 
 Added several image augmentation techniques to apply to the training set: noise, dropout, light variation, and glaring:
 
@@ -51,7 +49,6 @@ The video demo can be found here: https://www.youtube.com/watch?v=kFE_k-mWo2A&fe
 
 
 ## Sept 10th, 2018
------------------------
 
 I've been training a new model with a full YOLOv3 configuration (previous one used Tiny YOLOv3), and it's been taking a lot more resources:
 
@@ -61,7 +58,6 @@ The author of darknet did mention that full network will take significantly more
 
 
 ## Sept 13th, 2018
-----------------------
 
 The training for full YOLOv3 model has turned sour - the loss saturated around 0.45, and didn't seem like it would improve in any reasonable amount of time. 
 
@@ -77,13 +73,11 @@ I suppose there is a poor man's alternative - feed individual frames from the vi
 
 
 ## Sept 14th, 2018
---------------------
 
 Thankfully, OpenCV had an implementation for DNN, which supports YOLO as well. They have done quite an amazing job, and the speed isn't too bad, either. I can score about 20~25fps on my tiny YOLO, without using GPU.
 
 
 ## Sept 15th, 2018
---------------------
 
 I tried to do an alternate approach - instead of making model identify cards as annonymous, train the model for EVERY single card. As you may imagine, this isn't sustainable for 10000+ different cards that exists in MTG, but I thought it would be reasonable for classifying 10 different cards.
 
@@ -105,8 +99,21 @@ Unfortunately, there is very little use case for my trained network in this algo
 
 
 ## Sept 16th, 2018
---------------------
 
 I've tweaked the openCV algorithm from yesterday and ran for a demo:
 
 https://www.youtube.com/watch?v=BZkRZDyhMRE&feature=youtu.be
+
+## Oct 4th, 2018
+
+With the current model I have, there seems to be little hope - I simply don't have enough knowledge in classical CV technique to separate overlaying cards. Even if I could, perceptual hash will be harder to use if I were to use only a fraction of a card image to classify it.
+
+There is an alternative to venture into instance segmentation with [mask R-CNN](https://arxiv.org/pdf/1703.06870.pdf), at the cost of losing real-time processing speed (and considerably more development time). Maybe worth a shot, although I'd have to nearly start from scratch (other than training data generation).
+
+## Oct 10th, 2018
+
+I've been trying to fiddle with the mask R-CNN using [this repo](https://github.com/matterport/Mask_RCNN)'s implementation, and got to train them with 60 manually labelled image set. The result is not too bad considering such a small dataset was used. However, there was a high FP rate overall (again, probably because of small dataset and the simplistic features of cards).
+
+<img src="https://github.com/hj3yoo/darknet/blob/master/figures/5_rcnn_result_1.jpg" width="360"><img src="https://github.com/hj3yoo/darknet/blob/master/figures/5_rcnn_result_2.jpg" width="360"><img src="https://github.com/hj3yoo/darknet/blob/master/figures/5_rcnn_result_3.jpg" width="360"><img src="https://github.com/hj3yoo/darknet/blob/master/figures/5_rcnn_result_4.jpg" width="360"><img src="https://github.com/hj3yoo/darknet/blob/master/figures/5_rcnn_result_5.jpg" width="360">
+
+Although it may be worth to generate large training dataset and train the model more thoroughly, I'm being short on time, as there are other priorities to do. I may revisit this later.
