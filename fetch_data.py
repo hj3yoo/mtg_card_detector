@@ -7,20 +7,24 @@ import os
 import transform_data
 import time
 
-all_set_list = [# Core & expansion sets with 2003 frame
-                'mrd', 'dst', '5dn', 'chk', 'bok', 'sok', 'rav', 'gpt', 'dis', 'csp', 'tsp', 'plc', 'fut', '10e', 'lrw',
-                'mor', 'shm', 'eve', 'ala', 'con', 'arb', 'm10', 'zen', 'wwk', 'roe', 'm11', 'som', 'mbs', 'nph', 'm12',
-                'isd', 'dka', 'avr', 'm13', 'rtr', 'gtc', 'dgm', 'm14', 'ths', 'bng', 'jou',
-                # Core & expansion sets with 2015 frame
-                'm15', 'ktk', 'frf', 'dtk', 'bfz', 'ogw', 'soi', 'emn', 'kld', 'aer', 'akh', 'hou', 'xln', 'rix', 'dom',
-                # Box sets
-                'evg', 'drb', 'dd2', 'ddc', 'td0', 'v09', 'ddd', 'h09', 'dde', 'dpa', 'v10', 'ddf', 'td0', 'pd2', 'ddg',
+
+# Core & expansion sets with 2003 frame
+set_2003_list = ['mrd', 'dst', '5dn', 'chk', 'bok', 'sok', 'rav', 'gpt', 'dis', 'csp', 'tsp', 'plc', 'fut', '10e',
+                 'lrw', 'mor', 'shm', 'eve', 'ala', 'con', 'arb', 'm10', 'zen', 'wwk', 'roe', 'm11', 'som', 'mbs',
+                 'nph', 'm12', 'isd', 'dka', 'avr', 'm13', 'rtr', 'gtc', 'dgm', 'm14', 'ths', 'bng', 'jou']
+# Core & expansion sets with 2015 frame
+set_2015_list = ['m15', 'ktk', 'frf', 'dtk', 'bfz', 'ogw', 'soi', 'emn', 'kld', 'aer', 'akh', 'hou', 'xln', 'rix', 'dom']
+
+# Box sets
+set_box_list = ['evg', 'drb', 'dd2', 'ddc', 'td0', 'v09', 'ddd', 'h09', 'dde', 'dpa', 'v10', 'ddf', 'td0', 'pd2', 'ddg',
                 'cmd', 'v11', 'ddh', 'pd3', 'ddi', 'v12', 'ddj', 'cm1', 'td2', 'ddk', 'v13', 'ddl', 'c13', 'ddm', 'md1',
                 'v14', 'ddn', 'c14', 'ddo', 'v15', 'ddp', 'c15', 'ddq', 'v16', 'ddr', 'c16', 'pca', 'dds', 'cma', 'c17',
-                'ddt', 'v17', 'ddu', 'cm2', 'ss1', 'gs1', 'c18',
-                # Supplemental sets
-                'HOP', 'ARC', 'PC2', 'CNS', 'CN2', 'E01', 'E02', 'BBD'
-                ]
+                'ddt', 'v17', 'ddu', 'cm2', 'ss1', 'gs1', 'c18']
+
+# Supplemental sets
+set_sup_list = ['hop', 'arc', 'pc2', 'cns', 'cn2', 'e01', 'e02', 'bbd']
+
+all_set_list = set_2003_list
 
 
 def fetch_all_cards_text(url='https://api.scryfall.com/cards/search?q=layout:normal+format:modern+lang:en+frame:2003',

@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import imagehash as ih
 import os
+import ast
 import sys
 import math
 import random
@@ -17,33 +18,53 @@ card_width = 315
 card_height = 440
 
 
-def calc_image_hashes(card_pool, save_to=None):
-    card_pool['art_hash'] = np.NaN
+def calc_image_hashes(card_pool, save_to=None, hash_size=32, highfreq_factor=4):
+    new_pool = pd.DataFrame(columns=list(card_pool.columns.values))
+    new_pool['card_hash'] = np.NaN
+    new_pool['art_hash'] = np.NaN
     for ind, card_info in card_pool.iterrows():
         if ind % 100 == 0:
             print(ind)
-        img_name = '%s/card_img/png/%s/%s_%s.png' % (transform_data.data_dir, card_info['set'],
-                                                     card_info['collector_number'],
-                                                     fetch_data.get_valid_filename(card_info['name']))
-        card_img = cv2.imread(img_name)
-        if card_img is None:
-            fetch_data.fetch_card_image(card_info,
-                                        out_dir='%s/card_img/png/%s' % (transform_data.data_dir, card_info['set']))
+
+        card_names = []
+        if card_info['layout'] in ['transform', 'double_faced_token']:
+            if isinstance(card_info['card_faces'], str):  # For some reason, dict isn't being parsed in the previous step
+                card_faces = ast.literal_eval(card_info['card_faces'])
+            else:
+                card_faces = card_info['card_faces']
+            for i in range(len(card_faces)):
+                card_names.append(card_faces[i]['name'])
+        else:  # if card_info['layout'] == 'normal':
+            card_names.append(card_info['name'])
+
+        for card_name in card_names:
+            card_info['name'] = card_name
+            img_name = '%s/card_img/png/%s/%s_%s.png' % (transform_data.data_dir, card_info['set'],
+                                                         card_info['collector_number'],
+                                                         fetch_data.get_valid_filename(card_info['name']))
             card_img = cv2.imread(img_name)
-        if card_img is None:
-            print('WARNING: card %s is not found!' % img_name)
-        img_art = Image.fromarray(card_img[121:580, 63:685])  # For 745*1040 size card image
-        art_hash = ih.phash(img_art, hash_size=32, highfreq_factor=4)
-        card_pool.at[ind, 'art_hash'] = art_hash
-        img_card = Image.fromarray(card_img)
-        card_hash = ih.phash(img_card, hash_size=32, highfreq_factor=4)
-        card_pool.at[ind, 'card_hash'] = card_hash
-        card_pool = card_pool[['artist', 'border_color', 'collector_number', 'color_identity', 'colors', 'flavor_text',
-                               'image_uris', 'mana_cost', 'legalities', 'name', 'oracle_text', 'rarity', 'type_line',
-                               'set', 'set_name', 'power', 'toughness', 'art_hash', 'card_hash']]
+            if card_img is None:
+                fetch_data.fetch_card_image(card_info,
+                                            out_dir='%s/card_img/png/%s' % (transform_data.data_dir, card_info['set']))
+                card_img = cv2.imread(img_name)
+            if card_img is None:
+                print('WARNING: card %s is not found!' % img_name)
+            #img_art = Image.fromarray(card_img[121:580, 63:685])  # For 745*1040 size card image
+            #art_hash = ih.phash(img_art, hash_size=32, highfreq_factor=4)
+            #card_pool.at[ind, 'art_hash'] = art_hash
+            img_card = Image.fromarray(card_img)
+            card_hash = ih.phash(img_card, hash_size=hash_size, highfreq_factor=highfreq_factor)
+            #card_pool.at[ind, 'card_hash'] = card_hash
+            card_info['card_hash'] = card_hash
+            #print(new_pool.index.max())
+            new_pool.loc[0 if new_pool.empty else new_pool.index.max() + 1] = card_info
+
+    new_pool = new_pool[['artist', 'border_color', 'collector_number', 'color_identity', 'colors', 'flavor_text',
+                         'image_uris', 'mana_cost', 'legalities', 'name', 'oracle_text', 'rarity', 'type_line',
+                         'set', 'set_name', 'power', 'toughness', 'art_hash', 'card_hash']]
     if save_to is not None:
-        card_pool.to_pickle(save_to)
-    return card_pool
+        new_pool.to_pickle(save_to)
+    return new_pool
 
 
 # www.pyimagesearch.com/2014/08/25/4-point-opencv-getperspective-transform-example/
@@ -282,7 +303,9 @@ def draw_card_graph(exist_cards, card_pool, f_len):
 
 def detect_frame(net, classes, img, card_pool, thresh_conf=0.5, thresh_nms=0.4, in_dim=(416, 416), out_path=None, display=True,
                  debug=False):
-    img_copy = img.copy()
+    start_1 = time.time()
+    elapsed = []
+    '''
     # Create a 4D blob from a frame.
     blob = cv2.dnn.blobFromImage(img, 1 / 255, in_dim, [0, 0, 0], 1, crop=False)
 
@@ -291,7 +314,9 @@ def detect_frame(net, classes, img, card_pool, thresh_conf=0.5, thresh_nms=0.4, 
 
     # Runs the forward pass to get output of the output layers
     outs = net.forward(get_outputs_names(net))
+    elapsed.append((time.time() - start_1) * 1000)
 
+    start_2 = time.time()
     img_result = img.copy()
 
     # Remove the bounding boxes with low confidence
@@ -300,7 +325,10 @@ def detect_frame(net, classes, img, card_pool, thresh_conf=0.5, thresh_nms=0.4, 
         class_id, confidence, box = obj
         left, top, width, height = box
         draw_pred(img_result, class_id, classes, confidence, left, top, left + width, top + height)
-
+    elapsed.append((time.time() - start_2) * 1000)
+    '''
+    img_result = img.copy()
+    obj_list = []
     # Put efficiency information. The function getPerfProfile returns the
     # overall time for inference(t) and the timings for each of the layers(in layersTimes)
     #if display:
@@ -315,6 +343,7 @@ def detect_frame(net, classes, img, card_pool, thresh_conf=0.5, thresh_nms=0.4, 
     '''
     det_cards = []
     for i in range(len(obj_list)):
+        start_3 = time.time()
         _, _, box = obj_list[i]
         left, top, width, height = box
         # Just in case the bounding box trimmed the edge of the cards, give it a bit of offset around the edge
@@ -325,11 +354,14 @@ def detect_frame(net, classes, img, card_pool, thresh_conf=0.5, thresh_nms=0.4, 
         y2 = min(img.shape[0], int(top + (1 + offset_ratio) * height))
         img_snip = img[y1:y2, x1:x2]
         cnts = find_card(img_snip)
+        elapsed.append((time.time() - start_3) * 1000)
         if len(cnts) > 0:
+            start_4 = time.time()
             cnt = cnts[0]  # The largest (rectangular) contour
             pts = np.float32([p[0] for p in cnt])
             img_warp = four_point_transform(img_snip, pts)
             img_warp = cv2.resize(img_warp, (card_width, card_height))
+            elapsed.append((time.time() - start_4) * 1000)
             '''
             img_art = img_warp[47:249, 22:294]
             img_art = Image.fromarray(img_art.astype('uint8'), 'RGB')
@@ -338,14 +370,16 @@ def detect_frame(net, classes, img, card_pool, thresh_conf=0.5, thresh_nms=0.4, 
             min_cards = card_pool[card_pool['hash_diff'] == min(card_pool['hash_diff'])]
             card_name = min_cards.iloc[0]['name']
             '''
+            start_5 = time.time()
             img_card = Image.fromarray(img_warp.astype('uint8'), 'RGB')
-            card_hash = ih.phash(img_card, hash_size=32, highfreq_factor=4)
-            card_pool['hash_diff'] = card_pool['card_hash'] - card_hash
+            card_hash = ih.phash(img_card, hash_size=32, highfreq_factor=4).hash.flatten()
+            card_pool['hash_diff'] = card_pool['card_hash'].apply(lambda x: np.count_nonzero(x != card_hash))
             min_cards = card_pool[card_pool['hash_diff'] == min(card_pool['hash_diff'])]
             card_name = min_cards.iloc[0]['name']
             card_set = min_cards.iloc[0]['set']
             det_cards.append((card_name, card_set))
             hash_diff = min_cards.iloc[0]['hash_diff']
+            elapsed.append((time.time() - start_5) * 1000)
 
             # Display the result
             if debug:
@@ -360,7 +394,8 @@ def detect_frame(net, classes, img, card_pool, thresh_conf=0.5, thresh_nms=0.4, 
 
     if out_path is not None:
         cv2.imwrite(out_path, img_result.astype(np.uint8))
-
+    elapsed = [(time.time() - start_1) * 1000] + elapsed
+    #print(', '.join(['%.2f' % t for t in elapsed]))
     return obj_list, det_cards, img_result
 
 
@@ -384,10 +419,11 @@ def detect_video(net, classes, capture, card_pool, thresh_conf=0.5, thresh_nms=0
                 cv2.waitKey(0)
                 break
             # Use the YOLO model to identify each cards annonymously
+            start_yolo = time.time()
             obj_list, det_cards, img_result = detect_frame(net, classes, frame, card_pool, thresh_conf=thresh_conf,
                                                            thresh_nms=thresh_nms, in_dim=in_dim, out_path=None,
                                                            display=display, debug=debug)
-
+            elapsed_yolo = (time.time() - start_yolo) * 1000
             # If the card was already detected in the previous frame, append 1 to the list
             # If the card previously detected was not found in this trame, append 0 to the list
             # If the card wasn't previously detected, make a new list and add 1 to it
@@ -413,21 +449,24 @@ def detect_video(net, classes, capture, card_pool, thresh_conf=0.5, thresh_nms=0
                     exist_cards[key] = [1]
             for key in gone:
                 exist_cards.pop(key)
+            start_graph = time.time()
             img_graph = draw_card_graph(exist_cards, card_pool, f_len)
-
+            elapsed_graph = (time.time() - start_graph) * 1000
             if debug:
                 max_num_obj = max(max_num_obj, len(obj_list))
                 for i in range(len(obj_list), max_num_obj):
                     cv2.imshow('card#%d' % i, np.zeros((1, 1), dtype=np.uint8))
 
+            start_display = time.time()
             img_save = np.zeros((height, width, 3), dtype=np.uint8)
             img_save[0:img_result.shape[0], 0:img_result.shape[1]] = img_result
             img_save[0:img_graph.shape[0], img_result.shape[1]:img_result.shape[1] + img_graph.shape[1]] = img_graph
             if display:
                 cv2.imshow('result', img_save)
+            elapsed_display = (time.time() - start_display) * 1000
 
             elapsed_ms = (time.time() - start_time) * 1000
-            print('Elapsed time: %.2f ms' % elapsed_ms)
+            #print('Elapsed time: %.2f ms, %.2f, %.2f, %.2f' % (elapsed_ms, elapsed_yolo, elapsed_graph, elapsed_display))
             if out_path is not None:
                 vid_writer.write(img_save.astype(np.uint8))
             cv2.waitKey(1)
@@ -469,17 +508,27 @@ def main():
         df = fetch_data.load_all_cards_text(csv_name)
         df_list.append(df)
         #print(df)
-    card_pool = pd.concat(df_list)
+    card_pool = pd.concat(df_list, sort=True)
     card_pool.reset_index(drop=True, inplace=True)
     card_pool.drop('Unnamed: 0', axis=1, inplace=True, errors='ignore')
-    card_pool = calc_image_hashes(card_pool, save_to='card_pool.pck')
+    for hash_size in [8, 16, 32, 64]:
+        for highfreq_factor in [4, 8, 16, 32]:
+            pck_name = 'card_pool_%d_%d.pck' % (hash_size, highfreq_factor)
+            if not os.path.exists(pck_name):
+                print(pck_name)
+                calc_image_hashes(card_pool, save_to=pck_name, hash_size=hash_size, highfreq_factor=highfreq_factor)
     '''
-    # csv_name = '%s/csv/%s.csv' % (transform_data.data_dir, 'rtr')
-    # card_pool = fetch_data.load_all_cards_text(csv_name)
-    # card_pool = calc_image_hashes(card_pool)
-    card_pool = pd.read_pickle('card_pool.pck')
-    card_pool = card_pool[(card_pool['set'] == 'rtr') | (card_pool['set'] == 'isd')]
+    #csv_name = '%s/csv/%s.csv' % (transform_data.data_dir, 'rtr')
+    #card_pool = fetch_data.load_all_cards_text(csv_name)
+    #card_pool = calc_image_hashes(card_pool, save_to='card_pool.pck')
+    #return
+    card_pool = pd.read_pickle('card_pool_32_4.pck')
+    #card_pool = card_pool[(card_pool['set'] == 'rtr') | (card_pool['set'] == 'isd')]
     card_pool = card_pool[['name', 'set', 'collector_number', 'card_hash']]
+
+    # ImageHash is basically just one numpy.ndarray with (hash_size)^2 number of bits. pre-emptively flattening it
+    # significantly increases speed for subtracting hashes in the future.
+    card_pool['card_hash'] = card_pool['card_hash'].apply(lambda x: x.hash.flatten())
 
     thresh_conf = 0.01
     thresh_nms = 0.8
