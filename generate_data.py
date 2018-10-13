@@ -5,16 +5,18 @@ import pickle
 import math
 import random
 import os
-import re
 import cv2
 import fetch_data
-import sys
 import numpy as np
 import pandas as pd
 import transform_data
 
-# Referenced from geaxgx's playing-card-detection: https://github.com/geaxgx/playing-card-detection
+
 class Backgrounds:
+    """
+    Container class for all background images for generator
+    Referenced from geaxgx's playing-card-detection: https://github.com/geaxgx/playing-card-detection
+    """
     def __init__(self, images=None, dumps_dir='data/dtd/images'):
         if images is not None:
             self._images = images
@@ -40,8 +42,15 @@ class Backgrounds:
 
 
 def load_dtd(dtd_dir='data/dtd/images', dump_it=True, dump_batch_size=1000):
+    """
+    Load Describable Texture Dataset (DTD) from local
+    :param dtd_dir: path of the DTD images folder
+    :param dump_it: flag for pickling it
+    :param dump_batch_size: # of images stored per pickle file
+    :return: list of all DTD images
+    """
     if not os.path.exists(dtd_dir):
-        print('Warning: directory for DTD 5s doesn\'t exist.' % dtd_dir)
+        print('Warning: directory for DTD %s doesn\'t exist.' % dtd_dir)
         print('You can download the dataset using this command:'
               '!wget https://www.robots.ox.ac.uk/~vgg/data/dtd/download/dtd-r1.0.1.tar.gz')
         return []
@@ -64,121 +73,19 @@ def load_dtd(dtd_dir='data/dtd/images', dump_it=True, dump_batch_size=1000):
 
 
 def apply_bounding_box(img, card_info, display=False):
+    """
+    Given a card image, extract specific features that can be used to train a model.
+    Note: Mana & set symbols are deprecated from the feature list. Refer to previous commits for their implementation:
+    https://github.com/hj3yoo/mtg_card_detector/tree/bb34d4e13da0f4753fbdefee837f54b16149d3ef
+    :param img: image of the card
+    :param card_info: characteristics of this card
+    :param display: flag for displaying the extracted features
+    :return:
+    """
     # List of detected objects to be fed into the neural net
     # The first object is the entire card
-    detected_object_list = [transform_data.ExtractedObject('card', [(0, 0), (len(img[0]), 0), (len(img[0]), len(img)), (0, len(img))])]
-    '''
-    # Mana symbol - They are located on the top right side of the card, next to the name
-    # Their position is stationary, and is right-aligned.
-    has_mana_cost = isinstance(card_info['mana_cost'], str)  # Cards with no mana cost will have nan
-    if has_mana_cost:
-        mana_cost = re.findall('\{(.*?)\}', card_info['mana_cost'])
-        x_anchor = 683
-        y_anchor = 65
-
-        # Cards with specific type or from old sets have their symbol at a different position
-        if card_info['set'] in ['8ed', 'mrd', 'dst', '5dn']:
-            y_anchor -= 2
-
-        for i in reversed(range(len(mana_cost))):
-            # Hybrid mana symbol are larger than a normal symbol
-            is_hybrid = '/' in mana_cost[i]
-            if is_hybrid:
-                x1 = x_anchor - 47
-                x2 = x_anchor + 2
-                y1 = y_anchor - 8
-                y2 = y_anchor + 43
-                x_anchor -= 45
-            else:
-                x1 = x_anchor - 39
-                x2 = x_anchor
-                y1 = y_anchor
-                y2 = y_anchor + 43
-                x_anchor -= 37
-            # Append them to the list of bounding box with the appropriate label
-            symbol_name = 'mana_symbol:' + mana_cost[i]
-            key_pts = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
-            detected_object_list.append(transform_data.ExtractedObject(symbol_name, key_pts))
-
-            if display:
-                img_symbol = img[y1:y2, x1:x2]
-                cv2.imshow('symbol', img_symbol)
-                cv2.waitKey(0)
-
-    # Set symbol - located on the right side of the type box in the centre of the card, next to the card type
-    # Only one symbol exists, and its colour varies by rarity.
-    if card_info['set'] in ['8ed']:
-        x1 = 622
-        x2 = 670
-    elif card_info['set'] in ['mrd', 'm10', 'm11', 'm12', 'm13', 'm14']:
-        x1 = 602
-        x2 = 684
-    elif card_info['set'] in ['dst']:
-        x1 = 636
-        x2 = 673
-    elif card_info['set'] in ['5dn']:
-        x1 = 630
-        x2 = 675
-    elif card_info['set'] in ['bok', 'rtr']:
-        x1 = 633
-        x2 = 683
-    elif card_info['set'] in ['sok', 'mbs']:
-        x1 = 638
-        x2 = 683
-    elif card_info['set'] in ['rav']:
-        x1 = 640
-        x2 = 678
-    elif card_info['set'] in ['csp']:
-        x1 = 650
-        x2 = 683
-    elif card_info['set'] in ['tsp', 'lrw', 'zen', 'wwk', 'ths']:
-        x1 = 640
-        x2 = 683
-    elif card_info['set'] in ['plc', 'fut', 'shm', 'eve']:
-        x1 = 625
-        x2 = 685
-    elif card_info['set'] in ['10e']:
-        x1 = 623
-        x2 = 680
-    elif card_info['set'] in ['mor', 'roe', 'bng']:
-        x1 = 637
-        x2 = 687
-    elif card_info['set'] in ['ala', 'arb']:
-        x1 = 635
-        x2 = 680
-    elif card_info['set'] in ['nph']:
-        x1 = 642
-        x2 = 678
-    elif card_info['set'] in ['gtc']:
-        x1 = 610
-        x2 = 683
-    elif card_info['set'] in ['dgm']:
-        x1 = 618
-        x2 = 678
-    else:
-        x1 = 630
-        x2 = 683
-    y1 = 589
-    y2 = 636
-    # Append them to the list of bounding box with the appropriate label
-    symbol_name = 'set_symbol:' + card_info['set']
-    key_pts = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
-    detected_object_list.append(transform_data.ExtractedObject(symbol_name, key_pts))
-
-    if display:
-        img_symbol = img[y1:y2, x1:x2]
-        cv2.imshow('symbol', img_symbol)
-        cv2.waitKey(0)
-
-    # Name box - The long bar on the top with card name and mana symbols
-    # TODO
-
-    # Type box - The long bar on the middle with card type and set symbols
-    # TODO
-
-    # Image box - the large image on the top half of the card
-    # TODO
-    '''
+    detected_object_list = [transform_data.ExtractedObject('card', [(0, 0), (len(img[0]), 0), (len(img[0]), len(img)),
+                                                                    (0, len(img))])]
     return detected_object_list
 
 

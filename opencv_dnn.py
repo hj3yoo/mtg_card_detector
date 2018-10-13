@@ -13,6 +13,15 @@ import fetch_data
 import transform_data
 
 
+"""
+As of the current version, the YOLO network has been removed from this code during optimization.
+It was found out that YOLO was adding too much processing delay, and the benefits from using it couldn't justify
+such heavy cost.
+If you're interested to see the implementation using YOLO, please check out the previous commit:
+https://github.com/hj3yoo/mtg_card_detector/tree/dea64611730c84a59c711c61f7f80948f82bcd31 
+"""
+
+
 def calc_image_hashes(card_pool, save_to=None, hash_size=32, highfreq_factor=4):
     """
     Calculate perceptual hash (pHash) value for each cards in the database, then store them if needed

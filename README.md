@@ -127,12 +127,14 @@ I've been able to significantly cut down the processing time of the current impl
 In order to identify the card from the snippet of the card image, I'm using perceptual hashing. When the card is detected in YOLO, I compute its pHash value from its image, and compare it with the pHash of every cards in the database to find the match. This process has a speed of O(n * m), where n is the number of cards detected in the image and m is the number of cards in the database. With more than 10000 different cards printed in MTG history, this computation was the first bottleneck. For the 50ms increment per detected card mentioned above, majority of that time was spent trying to subtract two 1024-bit hashes 10000+ times - that's more than 10^10 comparisons right there!
 
 Although I couldn't cut down on the number of arithmetics, I did find another place that was unncessarily slowing things down. The following is the elapsed time for subtracting pHash for all 10000 elements in pandas database:
+
 | hash_size  | elapsed_time (ms) |
 |---|---|
 | 8 | 23.01 |
 | 16 | 25.72 |
 | 32 | 33.38 |
 | 64 | 65.98 |
+
 If you plot them using (hash_size)^2 and elapsed_time, you get almost a linear graph with a huge constant y-intercept:
 <img src="https://github.com/hj3yoo/mtg_card_detector/blob/master/figures/6_time_plot_1.png">
 
@@ -163,6 +165,7 @@ print('%f' % elapsed)
 
 The execution time of that code snippet on average is 11.65ms, which is slightly over half of 22.4ms of constant delay. That's a lot of time that can be cut out.
 By pre-emptively flattening the hashes and using the hash subtraction's code (yes I know it's not a good OOP design, but this is too much of a tradeoff), that constant time can be cut out significantly:
+
 | hash_size | elapsed_time (ms) |
 |---|---|
 | 8 | 9.9 |

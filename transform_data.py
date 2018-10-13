@@ -8,7 +8,6 @@ import pandas as pd
 import fetch_data
 import generate_data
 from shapely import geometry
-import pytesseract
 import imgaug as ia
 from imgaug import augmenters as iaa
 from imgaug import parameters as iap
@@ -39,7 +38,9 @@ def key_pts_to_yolo(key_pts, w_img, h_img):
 
 class ImageGenerator:
     """
-    A template for generating a training image.
+    A template for generating a training image
+    An ImageGenerator contains a background image, list of cards, and other environmental parameters to
+    set up a training image for YOLO network
     """
     def __init__(self, img_bg, class_ids, width, height, skew=None, cards=None):
         """
@@ -59,7 +60,7 @@ class ImageGenerator:
         else:
             self.cards = cards
 
-        # Compute transform matrix for perspective transform
+        # Compute transform matrix for perspective transform (used for skewing the final result)
         if skew is not None:
             orig_corner = np.array([[0, 0], [0, height], [width, height], [width, 0]], dtype=np.float32)
             new_corner = np.array([[width * s[0], height * s[1]] for s in skew], dtype=np.float32)
@@ -79,6 +80,7 @@ class ImageGenerator:
         :param scale: new scale for the card
         :return: none
         """
+        # If the position isn't given, push it out of the image so that it won't be visible during rendering
         if x is None:
             x = -len(card.img[0]) / 2
         if y is None:
@@ -90,24 +92,27 @@ class ImageGenerator:
         card.scale = scale
         pass
 
-    def render(self, visibility=0.5, display=False, debug=False, aug=None):
+    def render(self, visibility=0.5, aug=None, display=False, debug=False):
         """
-        Display the current state of the generator
+        Display the current state of the generator.
+        :param visibility: portion of the card's image that must not be overlapped by other cards for the card to be
+                           considered as visible
+        :param aug: image augmentator to apply during rendering
+        :param display: flag for displaying the rendering result
+        :param debug: flag for debug
         :return: none
         """
         self.check_visibility(visibility=visibility)
-        #img_result = cv2.resize(self.img_bg, (self.width, self.height))
         img_result = np.zeros((self.height, self.width, 3), dtype=np.uint8)
 
         for card in self.cards:
-            if card.x == 0.0 and card.y == 0.0 and card.theta == 0.0 and card.scale == 1.0:
-                continue
             card_x = int(card.x + 0.5)
             card_y = int(card.y + 0.5)
-            #print(card_x, card_y, card.theta, card.scale)
 
             # Scale & rotate card image
             img_card = cv2.resize(card.img, (int(len(card.img[0]) * card.scale), int(len(card.img) * card.scale)))
+            # Add a random glaring on individual card - it happens frequently in real life as MTG cards can reflect
+            # the lights very well.
             if aug is not None:
                 seq = iaa.Sequential([
                     iaa.SimplexNoiseAlpha(first=iaa.Add(random.randrange(128)), size_px_max=[1, 3],
@@ -147,15 +152,9 @@ class ImageGenerator:
                         bounding_box = card.bb_in_generator(ext_obj.key_pts)
                         cv2.rectangle(img_result, bounding_box[0], bounding_box[2], (1, 255, 1), 5)
 
-        '''
-        try:
-            text = pytesseract.image_to_string(img_result, output_type=pytesseract.Output.DICT)
-            print(text)
-        except pytesseract.pytesseract.TesseractError:
-            pass
-        '''
         img_result = cv2.GaussianBlur(img_result, (5, 5), 0)
 
+        # Skew the cards if it's provided
         if self.M is not None:
             img_result = cv2.warpPerspective(img_result, self.M, (self.width, self.height))
             if debug:
@@ -171,10 +170,11 @@ class ImageGenerator:
         img_bg = cv2.resize(self.img_bg, (self.width, self.height))
         img_result = np.where(img_result, img_result, img_bg)
 
+        # Apply image augmentation
         if aug is not None:
             img_result = aug.augment_image(img_result)
 
-        if display:
+        if display or debug:
             cv2.imshow('Result', img_result)
             cv2.waitKey(0)
 
@@ -184,6 +184,11 @@ class ImageGenerator:
     def generate_horizontal_span(self, gap=None, scale=None, theta=0, shift=None, jitter=None):
         """
         Generating the first scenario where the cards are laid out in a straight horizontal line
+        :param gap: horizontal offset between each adjacent cards
+        :param scale: scale of each cards in the generator
+        :param theta: rotation of the entire span in radian
+        :param shift: range of arbitrary offset for each card
+        :param jitter: range of in-place rotation for each card in radian
         :return: True if successfully generated, otherwise False
         """
         # Set scale of the cards, variance of shift & jitter to be applied if they're not given
@@ -197,7 +202,8 @@ class ImageGenerator:
             shift = [-card_size[1] * scale * 0.05, card_size[1] * scale * 0.05]
             pass
         if jitter is None:
-            jitter = [-math.pi / 18, math.pi / 18]  # Plus minus 10 degrees
+            # Plus minus 10 degrees
+            jitter = [-math.pi / 18, math.pi / 18]
         if gap is None:
             # 25% of the card's width - set symbol and 1-2 mana symbols will be visible on each card
             gap = card_size[0] * scale * 0.4
@@ -221,6 +227,12 @@ class ImageGenerator:
     def generate_vertical_span(self, gap=None, scale=None, theta=0, shift=None, jitter=None):
         """
         Generating the second scenario where the cards are laid out in a straight vertical line
+        :param gap: horizontal offset between each adjacent cards
+        :param scale: scale of each cards in the generator
+        :param theta: rotation of the entire span in radian
+        :param shift: range of arbitrary offset for each card
+        :param jitter: range of in-place rotation for each card in radian
+        :return: True if successfully generated, otherwise False
         :return: True if successfully generated, otherwise False
         """
         # Set scale of the cards, variance of shift & jitter to be applied if they're not given
@@ -260,12 +272,14 @@ class ImageGenerator:
         Generating the third scenario where the cards are laid out in a fan shape
         :return: True if successfully generated, otherwise False
         """
+        # TODO
         return False
 
     def generate_non_obstructive(self, tolerance=0.90, scale=None):
         """
         Generating the fourth scenario where the cards are laid in arbitrary position that doesn't obstruct other cards
         :param tolerance: minimum level of visibility for each cards
+        :param scale: scale of each cards in generator
         :return: True if successfully generated, otherwise False
         """
         card_size = (len(self.cards[0].img[0]), len(self.cards[0].img))
@@ -276,7 +290,6 @@ class ImageGenerator:
         # Position each card at random location that doesn't obstruct other cards
         i = 0
         while i < len(self.cards):
-        #for i in range(len(self.cards)):
             card = self.cards[i]
             card.scale = scale
             rep = 0
@@ -300,8 +313,8 @@ class ImageGenerator:
 
     def check_visibility(self, cards=None, i_check=None, visibility=0.5):
         """
-        Check whether if extracted objects in each card are visible in the current scenario, and update their status
-        :param cards: list of cards (in a correct order)
+        Check whether if extracted objects in a card is visible in the current scenario, and update their status
+        :param cards: list of cards (in a correct Z-order). All cards in this Generator are checked by default.
         :param i_check: indices of cards that needs to be checked. Cards that aren't in this list will only be used
         to check visibility of other cards. All cards are checked by default.
         :param visibility: minimum ratio of the object's area that aren't covered by another card to be visible
@@ -311,6 +324,8 @@ class ImageGenerator:
             cards = self.cards
         if i_check is None:
             i_check = range(len(cards))
+
+        # Create a polygon of each card
         card_poly_list = [geometry.Polygon([card.coordinate_in_generator(0, 0),
                                             card.coordinate_in_generator(0, len(card.img)),
                                             card.coordinate_in_generator(len(card.img[0]), len(card.img)),
@@ -324,22 +339,26 @@ class ImageGenerator:
                 obj_poly = geometry.Polygon([card.coordinate_in_generator(pt[0], pt[1]) for pt in ext_obj.key_pts])
                 obj_area = obj_poly.area
                 # Check if the other cards are blocking this object or if it's out of the template
+                # If there are other polygons with higher indices in the list, that card is overlapping this object
+                # We assume that no objects from the same card is on top of each other
                 for card_poly in card_poly_list[i + 1:]:
                     obj_poly = obj_poly.difference(card_poly)
                 obj_poly = obj_poly.intersection(template_poly)
                 visible_area = obj_poly.area
-                #print(visible_area, obj_area, len(card.img[0]) * len(card.img) * card.scale * card.scale)
-                #print("%s: %.1f visible" % (ext_obj.label, visible_area / obj_area * 100))
                 ext_obj.visible = obj_area * visibility <= visible_area
 
     def export_training_data(self, out_name, visibility=0.5, aug=None):
         """
         Export the generated training image along with the txt file for all bounding boxes
+        :param out_name: path of the output file (without extension)
+        :param visibility: portion of the card's image that must not be overlapped by other cards for the card to be
+                           considered as visible
+        :param aug: image augmentator to be applied
         :return: none
         """
         self.render(visibility, aug=aug)
         cv2.imwrite(out_name + '.jpg', self.img_result)
-        out_txt = open(out_name+ '.txt', 'w')
+        out_txt = open(out_name + '.txt', 'w')
         for card in self.cards:
             for ext_obj in card.objects:
                 if not ext_obj.visible:
@@ -348,17 +367,9 @@ class ImageGenerator:
                 obj_yolo_info = key_pts_to_yolo(coords_in_gen, self.width, self.height)
                 if ext_obj.label == 'card':
                     #class_id = self.class_ids[card.info['name']]
-                    class_id = 0
+                    class_id = 0  # since only the entire card is used
                     out_txt.write(str(class_id) + ' %.6f %.6f %.6f %.6f\n' % obj_yolo_info)
-                    pass
-                elif ext_obj.label[:ext_obj.label.find[':']] == 'mana_symbol':
-                    # TODO
-                    pass
-                elif ext_obj.label[:ext_obj.label.find[':']] == 'set_symbol':
-                    # TODO
-                    pass
         out_txt.close()
-        pass
 
 
 class Card:
@@ -370,7 +381,6 @@ class Card:
         :param img: image of the card
         :param card_info: details like name, mana cost, type, set, etc
         :param objects: list of ExtractedObjects like mana & set symbol, etc
-        :param generator: ImageGenerator object that the card is bound to
         :param x: X-coordinate of the card's centre in relation to the generator
         :param y: Y-coordinate of the card's centre in relation to the generator
         :param theta: angle of rotation of the card in relation to the generator
@@ -389,7 +399,7 @@ class Card:
         """
         Apply a X/Y translation on this image
         :param x: amount of X-translation. If range is given, translate by a random amount within that range
-        :param y: amount of Y-translation. Refer to x when a range is given.
+        :param y: amount of Y-translation. If range is given, translate by a random amount within that range
         :return: none
         """
         if isinstance(x, tuple) or (isinstance(x, list) and len(x) == 2):
@@ -406,8 +416,8 @@ class Card:
         """
         Apply a rotation on this image with a centre
         :param theta: amount of rotation in radian (clockwise). If a range is given, rotate by a random amount within
+                      that range
         :param centre: coordinate of the centre of the rotation in relation to the centre of this card
-        that range
         :return: none
         """
         if isinstance(theta, tuple) or (isinstance(theta, list) and len(theta) == 2):
@@ -467,18 +477,6 @@ class Card:
         x2 = max([pt[0] for pt in coords_in_gen])
         y1 = min([pt[1] for pt in coords_in_gen])
         y2 = max([pt[1] for pt in coords_in_gen])
-        '''
-        x1 = -math.inf
-        x2 = math.inf
-        y1 = -math.inf
-        y2 = math.inf
-        for key_pt in key_pts:
-            coord_in_gen = self.coordinate_in_generator(key_pt[0], key_pt[1])
-            x1 = max(x1, coord_in_gen[0])
-            x2 = min(x2, coord_in_gen[0])
-            y1 = max(y1, coord_in_gen[1])
-            y2 = min(y2, coord_in_gen[1])
-        '''
         return [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
 
 
@@ -497,7 +495,6 @@ def main():
     ia.seed(random.randrange(10000))
 
     bg_images = generate_data.load_dtd(dtd_dir='%s/dtd/images' % data_dir, dump_it=False)
-    #bg_images = [cv2.imread('data/frilly_0007.jpg')]
     background = generate_data.Backgrounds(images=bg_images)
 
     card_pool = pd.DataFrame()
@@ -512,14 +509,18 @@ def main():
 
     num_gen = 60000
     num_iter = 1
+    w_gen = 1440
+    h_gen = 960
 
     for i in range(num_gen):
         # Arbitrarily select top left and right corners for perspective transformation
         # Since the training image are generated with random rotation, don't need to skew all four sides
         skew = [[random.uniform(0, 0.25), 0], [0, 1], [1, 1],
                 [random.uniform(0.75, 1), 0]]
-        generator = ImageGenerator(background.get_random(), class_ids, 1440, 960, skew=skew)
+        generator = ImageGenerator(background.get_random(), class_ids, w_gen, h_gen, skew=skew)
         out_name = ''
+
+        # Use 2 to 5 cards per generator
         for _, card_info in card_pool.sample(random.randint(2, 5)).iterrows():
             img_name = '%s/card_img/png/%s/%s_%s.png' % (data_dir, card_info['set'], card_info['collector_number'],
                                                          fetch_data.get_valid_filename(card_info['name']))
@@ -533,13 +534,14 @@ def main():
             detected_object_list = generate_data.apply_bounding_box(card_img, card_info)
             card = Card(card_img, card_info, detected_object_list)
             generator.add_card(card)
+
         for j in range(num_iter):
             seq = iaa.Sequential([
                 iaa.Multiply((0.8, 1.2)),  # darken / brighten the whole image
                 iaa.SimplexNoiseAlpha(first=iaa.Add(random.randrange(64)), per_channel=0.1, size_px_max=[3, 6],
                                       upscale_method="cubic"),  # Lighting
                 iaa.AdditiveGaussianNoise(scale=random.uniform(0, 0.05) * 255, per_channel=0.1),  # Noises
-                iaa.Dropout(p=[0, 0.05], per_channel=0.1)
+                iaa.Dropout(p=[0, 0.05], per_channel=0.1)  # Dropout
             ])
 
             if i % 3 == 0:

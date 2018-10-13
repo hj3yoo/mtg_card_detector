@@ -1,9 +1,17 @@
 import cv2
 import numpy as np
-import pandas as pd
 import math
 from screeninfo import get_monitors
 
+"""
+This is the first attempt of identifying MTG cards using only classical computer vision technique.
+Most of the processes are similar to the process used in opencv_dnn.py, but it instead tries to use 
+Hough transformation to identify straight edges of the card.
+However, there were difficulties trying to associate multiple edges into a rectangle, as some of them 
+either didn't show up or was too short to intersect.
+There were also no method to dynamically adjust various threshold, even finding all the edges were
+very conditional.
+"""
 
 def detect_a_card(img, thresh_val=80, blur_radius=None, dilate_radius=None, min_hyst=80, max_hyst=200,
                   min_line_length=None, max_line_gap=None, debug=False):
