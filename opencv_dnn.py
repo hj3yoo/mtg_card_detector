@@ -4,6 +4,7 @@ import pandas as pd
 import imagehash as ih
 import os
 import ast
+import queue
 import sys
 import math
 import random
@@ -225,7 +226,7 @@ def remove_glare(img):
     return corrected
 
 
-def find_card(img, thresh_c=5, kernel_size=(3, 3), size_ratio=0.2):
+def find_card(img, thresh_c=5, kernel_size=(3, 3), size_thresh=5000):
     # Typical pre-processing - grayscale, blurring, thresholding
     img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     img_blur = cv2.medianBlur(img_gray, 5)
@@ -242,19 +243,58 @@ def find_card(img, thresh_c=5, kernel_size=(3, 3), size_ratio=0.2):
     if len(cnts) == 0:
         print('no contours')
         return []
+    cv2.drawContours(img, cnts, -1, (0, 0, 255), 1)
+    '''
+    next = 0
+    while next != -1:
+        img_copy = img.copy()
+        print(hier[0][next])
+        cv2.drawContours(img_copy, cnts[hier[0][next][0]], -1, (0, 255, 0), 2)
+        cv2.imshow('hi', img_copy)
+        cv2.waitKey(0)
+        next = hier[0][next][0]
+    '''
     #img_contour = cv2.cvtColor(img_contour, cv2.COLOR_GRAY2BGR)
     #img_contour = cv2.drawContours(img_contour, cnts, -1, (0, 255, 0), 1)
     #cv2.imshow('test', img_contour)
 
-    # For each contours detected, check if they are large enough and are rectangle
+    '''
+    The hierarchy from cv2.findContours() is similar to a tree: each node has an access to the parent, the first child, 
+    their previous and next node 
+    Using (preorder) depth-first search, find the uppermost contour in the hierarchy that satisfies the condition
+    The candidate contour must be rectangle (has 4 points) and should be larger than a threshold
+    '''
+
     cnts_rect = []
+    stack = [(0, hier[0][0])]
+    while len(stack) > 0:
+        i_cnt, h = stack.pop()
+        i_next, i_prev, i_child, i_parent = h
+        if i_next != -1:
+            stack.append((i_next, hier[0][i_next]))
+        cnt = cnts[i_cnt]
+        size = cv2.contourArea(cnt)
+        peri = cv2.arcLength(cnt, True)
+        approx = cv2.approxPolyDP(cnt, 0.04 * peri, True)
+        if size >= size_thresh:
+            cv2.drawContours(img, [cnt], -1, (255, 0, 0), 1)
+            #print(size)
+            if len(approx) == 4:
+                cnts_rect.append(approx)
+        else:
+            if i_child != -1:
+                stack.append((i_child, hier[0][i_child]))
+
+
+    '''
+    # For each contours detected, check if they are large enough and are rectangle
     ind_sort = sorted(range(len(cnts)), key=lambda i: cv2.contourArea(cnts[i]), reverse=True)
-    for i in range(min(len(cnts), 5)):  # The card should be within top 5 largest contour
-        size = cv2.contourArea(cnts[ind_sort[i]])
+    for i in range(len(cnts)):
         peri = cv2.arcLength(cnts[ind_sort[i]], True)
         approx = cv2.approxPolyDP(cnts[ind_sort[i]], 0.04 * peri, True)
-        if size > img.shape[0] * img.shape[1] * size_ratio and len(approx) == 4:
+        if len(approx) == 4:
             cnts_rect.append(approx)
+    '''
 
     return cnts_rect
 
@@ -301,8 +341,8 @@ def draw_card_graph(exist_cards, card_pool, f_len):
     return img_graph
 
 
-def detect_frame(net, classes, img, card_pool, thresh_conf=0.5, thresh_nms=0.4, in_dim=(416, 416), out_path=None, display=True,
-                 debug=False):
+def detect_frame(net, classes, img, card_pool, thresh_conf=0.5, thresh_nms=0.4, in_dim=(416, 416), card_size=1000,
+                 out_path=None, display=True, debug=False):
     start_1 = time.time()
     elapsed = []
     '''
@@ -328,7 +368,6 @@ def detect_frame(net, classes, img, card_pool, thresh_conf=0.5, thresh_nms=0.4, 
     elapsed.append((time.time() - start_2) * 1000)
     '''
     img_result = img.copy()
-    obj_list = []
     # Put efficiency information. The function getPerfProfile returns the
     # overall time for inference(t) and the timings for each of the layers(in layersTimes)
     #if display:
@@ -342,61 +381,53 @@ def detect_frame(net, classes, img, card_pool, thresh_conf=0.5, thresh_nms=0.4, 
     comparing the perceptual hashing of the image with the other cards' image from the database.
     '''
     det_cards = []
-    for i in range(len(obj_list)):
-        start_3 = time.time()
-        _, _, box = obj_list[i]
-        left, top, width, height = box
-        # Just in case the bounding box trimmed the edge of the cards, give it a bit of offset around the edge
-        offset_ratio = 0.1
-        x1 = max(0, int(left - offset_ratio * width))
-        x2 = min(img.shape[1], int(left + (1 + offset_ratio) * width))
-        y1 = max(0, int(top - offset_ratio * height))
-        y2 = min(img.shape[0], int(top + (1 + offset_ratio) * height))
-        img_snip = img[y1:y2, x1:x2]
-        cnts = find_card(img_snip)
+    start_3 = time.time()
+    cnts = find_card(img_result)
+    for i in range(len(cnts)):
+        cnt = cnts[i]
+        # ignore any contours smaller than threshold
         elapsed.append((time.time() - start_3) * 1000)
-        if len(cnts) > 0:
-            start_4 = time.time()
-            cnt = cnts[0]  # The largest (rectangular) contour
-            pts = np.float32([p[0] for p in cnt])
-            img_warp = four_point_transform(img_snip, pts)
-            img_warp = cv2.resize(img_warp, (card_width, card_height))
-            elapsed.append((time.time() - start_4) * 1000)
-            '''
-            img_art = img_warp[47:249, 22:294]
-            img_art = Image.fromarray(img_art.astype('uint8'), 'RGB')
-            art_hash = ih.phash(img_art, hash_size=32, highfreq_factor=4)
-            card_pool['hash_diff'] = card_pool['art_hash'] - art_hash
-            min_cards = card_pool[card_pool['hash_diff'] == min(card_pool['hash_diff'])]
-            card_name = min_cards.iloc[0]['name']
-            '''
-            start_5 = time.time()
-            img_card = Image.fromarray(img_warp.astype('uint8'), 'RGB')
-            card_hash = ih.phash(img_card, hash_size=32, highfreq_factor=4).hash.flatten()
-            card_pool['hash_diff'] = card_pool['card_hash'].apply(lambda x: np.count_nonzero(x != card_hash))
-            min_cards = card_pool[card_pool['hash_diff'] == min(card_pool['hash_diff'])]
-            card_name = min_cards.iloc[0]['name']
-            card_set = min_cards.iloc[0]['set']
-            det_cards.append((card_name, card_set))
-            hash_diff = min_cards.iloc[0]['hash_diff']
-            elapsed.append((time.time() - start_5) * 1000)
+        start_4 = time.time()
+        pts = np.float32([p[0] for p in cnt])
+        img_warp = four_point_transform(img, pts)
+        img_warp = cv2.resize(img_warp, (card_width, card_height))
+        elapsed.append((time.time() - start_4) * 1000)
+        '''
+        img_art = img_warp[47:249, 22:294]
+        img_art = Image.fromarray(img_art.astype('uint8'), 'RGB')
+        art_hash = ih.phash(img_art, hash_size=32, highfreq_factor=4)
+        card_pool['hash_diff'] = card_pool['art_hash'] - art_hash
+        min_cards = card_pool[card_pool['hash_diff'] == min(card_pool['hash_diff'])]
+        card_name = min_cards.iloc[0]['name']
+        '''
+        start_5 = time.time()
+        img_card = Image.fromarray(img_warp.astype('uint8'), 'RGB')
+        card_hash = ih.phash(img_card, hash_size=32, highfreq_factor=4).hash.flatten()
+        card_pool['hash_diff'] = card_pool['card_hash'].apply(lambda x: np.count_nonzero(x != card_hash))
+        min_cards = card_pool[card_pool['hash_diff'] == min(card_pool['hash_diff'])]
+        card_name = min_cards.iloc[0]['name']
+        card_set = min_cards.iloc[0]['set']
+        det_cards.append((card_name, card_set))
+        hash_diff = min_cards.iloc[0]['hash_diff']
+        elapsed.append((time.time() - start_5) * 1000)
 
-            # Display the result
-            if debug:
-                # cv2.rectangle(img_warp, (22, 47), (294, 249), (0, 255, 0), 2)
-                cv2.putText(img_warp, card_name + ', ' + str(hash_diff), (0, 50),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-            cv2.putText(img_result, card_name, (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-            if debug:
-                cv2.imshow('card#%d' % i, img_warp)
-        elif debug:
-            cv2.imshow('card#%d' % i, np.zeros((1, 1), dtype=np.uint8))
+        # Display the result
+        if debug:
+            # cv2.rectangle(img_warp, (22, 47), (294, 249), (0, 255, 0), 2)
+            cv2.putText(img_warp, card_name + ', ' + str(hash_diff), (0, 50),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        cv2.drawContours(img_result, [cnt], -1, (0, 255, 0), 1)
+        cv2.putText(img_result, card_name, (pts[0][0], pts[0][1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+        if debug:
+            cv2.imshow('card#%d' % i, img_warp)
+        #if debug:
+        #    cv2.imshow('card#%d' % i, np.zeros((1, 1), dtype=np.uint8))
 
     if out_path is not None:
         cv2.imwrite(out_path, img_result.astype(np.uint8))
     elapsed = [(time.time() - start_1) * 1000] + elapsed
     #print(', '.join(['%.2f' % t for t in elapsed]))
-    return obj_list, det_cards, img_result
+    return det_cards, img_result
 
 
 def detect_video(net, classes, capture, card_pool, thresh_conf=0.5, thresh_nms=0.4, in_dim=(416, 416), out_path=None,
@@ -420,9 +451,9 @@ def detect_video(net, classes, capture, card_pool, thresh_conf=0.5, thresh_nms=0
                 break
             # Use the YOLO model to identify each cards annonymously
             start_yolo = time.time()
-            obj_list, det_cards, img_result = detect_frame(net, classes, frame, card_pool, thresh_conf=thresh_conf,
-                                                           thresh_nms=thresh_nms, in_dim=in_dim, out_path=None,
-                                                           display=display, debug=debug)
+            det_cards, img_result = detect_frame(net, classes, frame, card_pool, thresh_conf=thresh_conf,
+                                                 thresh_nms=thresh_nms, in_dim=in_dim, out_path=None, display=display,
+                                                 debug=debug)
             elapsed_yolo = (time.time() - start_yolo) * 1000
             # If the card was already detected in the previous frame, append 1 to the list
             # If the card previously detected was not found in this trame, append 0 to the list
@@ -452,10 +483,10 @@ def detect_video(net, classes, capture, card_pool, thresh_conf=0.5, thresh_nms=0
             start_graph = time.time()
             img_graph = draw_card_graph(exist_cards, card_pool, f_len)
             elapsed_graph = (time.time() - start_graph) * 1000
-            if debug:
-                max_num_obj = max(max_num_obj, len(obj_list))
-                for i in range(len(obj_list), max_num_obj):
-                    cv2.imshow('card#%d' % i, np.zeros((1, 1), dtype=np.uint8))
+            #if debug:
+            #    max_num_obj = max(max_num_obj, len(obj_list))
+            #    for i in range(len(obj_list), max_num_obj):
+            #        cv2.imshow('card#%d' % i, np.zeros((1, 1), dtype=np.uint8))
 
             start_display = time.time()
             img_save = np.zeros((height, width, 3), dtype=np.uint8)
@@ -466,7 +497,7 @@ def detect_video(net, classes, capture, card_pool, thresh_conf=0.5, thresh_nms=0
             elapsed_display = (time.time() - start_display) * 1000
 
             elapsed_ms = (time.time() - start_time) * 1000
-            #print('Elapsed time: %.2f ms, %.2f, %.2f, %.2f' % (elapsed_ms, elapsed_yolo, elapsed_graph, elapsed_display))
+            print('Elapsed time: %.2f ms, %.2f, %.2f, %.2f' % (elapsed_ms, elapsed_yolo, elapsed_graph, elapsed_display))
             if out_path is not None:
                 vid_writer.write(img_save.astype(np.uint8))
             cv2.waitKey(1)
