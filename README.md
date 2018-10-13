@@ -117,3 +117,61 @@ I've been trying to fiddle with the mask R-CNN using [this repo](https://github.
 <img src="https://github.com/hj3yoo/mtg_card_detector/blob/master/figures/5_rcnn_result_1.png" width="360"><img src="https://github.com/hj3yoo/mtg_card_detector/blob/master/figures/5_rcnn_result_2.png" width="360"><img src="https://github.com/hj3yoo/mtg_card_detector/blob/master/figures/5_rcnn_result_3.png" width="360"><img src="https://github.com/hj3yoo/mtg_card_detector/blob/master/figures/5_rcnn_result_4.png" width="360"><img src="https://github.com/hj3yoo/mtg_card_detector/blob/master/figures/5_rcnn_result_5.png" width="360">
 
 Although it may be worth to generate large training dataset and train the model more thoroughly, I'm being short on time, as there are other priorities to do. I may revisit this later. I will be cleaning this repo in the next few days, wrapping it up for now.
+
+## Oct 12th, 2018
+
+I've been able to significantly cut down the processing time of the current implementation. For n cards detected in the video, the latency has decreased from (65+50n)ms to (10+25n)ms. There were two major bottlenecks that was slowing the program down:
+
+--------------------------
+
+In order to identify the card from the snippet of the card image, I'm using perceptual hashing. When the card is detected in YOLO, I compute its pHash value from its image, and compare it with the pHash of every cards in the database to find the match. This process has a speed of O(n * m), where n is the number of cards detected in the image and m is the number of cards in the database. With more than 10000 different cards printed in MTG history, this computation was the first bottleneck. For the 50ms increment per detected card mentioned above, majority of that time was spent trying to subtract two 1024-bit hashes 10000+ times - that's more than 10^10 comparisons right there!
+
+Although I couldn't cut down on the number of arithmetics, I did find another place that was unncessarily slowing things down. The following is the elapsed time for subtracting pHash for all 10000 elements in pandas database:
+| hash_size  | elapsed_time (ms) |
+|---|---|
+| 8 | 23.01 |
+| 16 | 25.72 |
+| 32 | 33.38 |
+| 64 | 65.98 |
+If you plot them using (hash_size)^2 and elapsed_time, you get almost a linear graph with a huge constant y-intercept:
+<img src="https://github.com/hj3yoo/mtg_card_detector/blob/master/figures/6_time_plot_1.png">
+
+Where is this fat constant of 22.4ms coming from? Well, we'd better look at how the [Imagehash library](https://github.com/JohannesBuchner/imagehash/blob/master/imagehash/__init__.py#L67-L72) deals with subtraction:
+```
+def __sub__(self, other):
+		if other is None:
+			raise TypeError('Other hash must not be None.')
+		if self.hash.size != other.hash.size:
+			raise TypeError('ImageHashes must be of the same shape.', self.hash.shape, other.hash.shape)
+		return numpy.count_nonzero(self.hash.flatten() != other.hash.flatten())
+```
+The code flattens both hashes before comparison. You might think, "How slow is that going to be?" Apparently fair amount.
+```
+a = np.ones([1, 1024], dtype=np.bool)
+start = time.time()
+for _ in range(10000):
+    if a is None:
+            raise TypeError('Other hash must not be None.')
+    if a.size != a.size:
+        raise TypeError('ImageHashes must be of the same shape.', self.hash.shape, other.hash.shape)
+    a.flatten()
+    a.flatten()
+end = time.time()
+elapsed = (end - start) * 1000
+print('%f' % elapsed)
+```
+
+The execution time of that code snippet on average is 11.65ms, which is slightly over half of 22.4ms of constant delay. That's a lot of time that can be cut out.
+By pre-emptively flattening the hashes and using the hash subtraction's code (yes I know it's not a good OOP design, but this is too much of a tradeoff), that constant time can be cut out significantly:
+| hash_size | elapsed_time (ms) |
+|---|---|
+| 8 | 9.9 |
+| 16 | 11.54 |
+| 32 | 18.55 |
+| 64 | 45.79 |
+
+------------------
+
+The other bottleneck is a something unfortunate. Turns out feeding the image through YOLO network consumes a constant 50 - 60ms per frame. Remember the processing time of (65+50)ms above? Yeah, that's where the 65ms is coming from.
+
+As hilarious and ironic it is, I would have to remove the network entirely to speed up the program... (((Facepalm into another dimension))) The program still works by replacing neural net with contour detection
