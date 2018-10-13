@@ -1,11 +1,12 @@
-from transform_data import data_dir
-from glob import glob
 import cv2
+from glob import glob
 import os
+
+from config import Config
 
 card_size = (63, 88)
 
-for subdir in glob(data_dir + "/card_img/png/*"):
+for subdir in glob(Config.data_dir + "/card_img/png/*"):
     split = subdir.split('/')
     split[-2] = 'tiny'
     dir_out = '/'.join(split)

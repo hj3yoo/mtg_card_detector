@@ -1,15 +1,17 @@
-from glob import glob
-import matplotlib.pyplot as plt
-import matplotlib.image as mpimage
-import pickle
-import math
-import random
-import os
 import cv2
 import fetch_data
+from glob import glob
+import math
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimage
 import numpy as np
+import os
 import pandas as pd
+import pickle
+import random
 import transform_data
+
+from config import Config
 
 
 class Backgrounds:
@@ -96,8 +98,8 @@ def main():
     #bg.get_random(display=True)
 
     card_pool = pd.DataFrame()
-    for set_name in fetch_data.all_set_list:
-        df = fetch_data.load_all_cards_text('data/csv/%s.csv' % set_name)
+    for set_name in Config.all_set_list:
+        df = fetch_data.load_all_cards_text('%s/csv/%s.csv' % (Config.data_dir, set_name))
         #for _ in range(3):
         #    card_info = df.iloc[random.randint(0, df.shape[0] - 1)]
         #    # Currently ignoring planeswalker cards due to their different card layout
@@ -119,8 +121,8 @@ def main():
     '''
 
     for _, card_info in card_pool.iterrows():
-        img_name = '../usb/data/png/%s/%s_%s.png' % (card_info['set'], card_info['collector_number'],
-                                                     fetch_data.get_valid_filename(card_info['name']))
+        img_name = '%s/card_img/png/%s/%s_%s.png' % (Config.data_dir, card_info['set'], card_info['collector_number'],
+                                            fetch_data.get_valid_filename(card_info['name']))
         print(img_name)
         card_img = cv2.imread(img_name)
         if card_img is None:

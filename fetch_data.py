@@ -1,34 +1,16 @@
-from urllib import request, error
 import ast
 import json
+import os
 import pandas as pd
 import re
-import os
-import transform_data
+from urllib import request, error
+
+from config import Config
 
 """
 Note: All codes in this file realies on Scryfall API to aggregate card database and their images.
 Scryfall API doc is available at: https://scryfall.com/docs/api
 """
-
-# List of all black-bordered cards printed from 8th edition and onwards (8ed and 9ed are white-bordered)
-# Core & expansion sets with 2003 frame
-set_2003_list = ['mrd', 'dst', '5dn', 'chk', 'bok', 'sok', 'rav', 'gpt', 'dis', 'csp', 'tsp', 'plc', 'fut', '10e',
-                 'lrw', 'mor', 'shm', 'eve', 'ala', 'con', 'arb', 'm10', 'zen', 'wwk', 'roe', 'm11', 'som', 'mbs',
-                 'nph', 'm12', 'isd', 'dka', 'avr', 'm13', 'rtr', 'gtc', 'dgm', 'm14', 'ths', 'bng', 'jou']
-# Core & expansion sets with 2015 frame
-set_2015_list = ['m15', 'ktk', 'frf', 'dtk', 'bfz', 'ogw', 'soi', 'emn', 'kld', 'aer', 'akh', 'hou', 'xln', 'rix', 'dom']
-
-# Box sets
-set_box_list = ['evg', 'drb', 'dd2', 'ddc', 'td0', 'v09', 'ddd', 'h09', 'dde', 'dpa', 'v10', 'ddf', 'td0', 'pd2', 'ddg',
-                'cmd', 'v11', 'ddh', 'pd3', 'ddi', 'v12', 'ddj', 'cm1', 'td2', 'ddk', 'v13', 'ddl', 'c13', 'ddm', 'md1',
-                'v14', 'ddn', 'c14', 'ddo', 'v15', 'ddp', 'c15', 'ddq', 'v16', 'ddr', 'c16', 'pca', 'dds', 'cma', 'c17',
-                'ddt', 'v17', 'ddu', 'cm2', 'ss1', 'gs1', 'c18']
-
-# Supplemental sets
-set_sup_list = ['hop', 'arc', 'pc2', 'cns', 'cn2', 'e01', 'e02', 'bbd']
-
-all_set_list = set_2003_list
 
 
 def fetch_all_cards_text(url='https://api.scryfall.com/cards/search?q=layout:normal+format:modern+lang:en+frame:2003',
@@ -113,7 +95,7 @@ def fetch_card_image(row, out_dir=None, size='png'):
     :return:
     """
     if out_dir is None:
-        out_dir = '%s/card_img/%s/%s' % (transform_data.data_dir, size, row['set'])
+        out_dir = '%s/card_img/%s/%s' % (Config.data_dir, size, row['set'])
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
@@ -145,8 +127,8 @@ def fetch_card_image(row, out_dir=None, size='png'):
 
 def main():
     # Query card data by each set, then merge them together
-    for set_name in all_set_list:
-        csv_name = '%s/csv/%s.csv' % (transform_data.data_dir, set_name)
+    for set_name in Config.all_set_list:
+        csv_name = '%s/csv/%s.csv' % (Config.data_dir, set_name)
         print(csv_name)
         if not os.path.isfile(csv_name):
             df = fetch_all_cards_text(url='https://api.scryfall.com/cards/search?q=set:%s+lang:en' % set_name,
@@ -154,10 +136,10 @@ def main():
         else:
             df = load_all_cards_text(csv_name)
         df.sort_values('collector_number')
-        fetch_all_cards_image(df, out_dir='%s/card_img/png/%s' % (transform_data.data_dir, set_name))
+        fetch_all_cards_image(df, out_dir='%s/card_img/png/%s' % (Config.data_dir, set_name))
 
     #df = fetch_all_cards_text(url='https://api.scryfall.com/cards/search?q=layout:normal+lang:en+frame:2003',
-    #                          csv_name='data/csv/all.csv')
+    #                          csv_name='%s/csv/all.csv' % Config.data_dir)
     return
 
 

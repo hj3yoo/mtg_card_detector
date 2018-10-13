@@ -9,8 +9,8 @@ import pandas as pd
 from PIL import Image
 import time
 
+from config import Config
 import fetch_data
-import transform_data
 
 
 """
@@ -54,7 +54,7 @@ def calc_image_hashes(card_pool, save_to=None, hash_size=32, highfreq_factor=4):
         for card_name in card_names:
             # Fetch the image - name can be found based on the card's information
             card_info['name'] = card_name
-            img_name = '%s/card_img/png/%s/%s_%s.png' % (transform_data.data_dir, card_info['set'],
+            img_name = '%s/card_img/png/%s/%s_%s.png' % (Config.data_dir, card_info['set'],
                                                          card_info['collector_number'],
                                                          fetch_data.get_valid_filename(card_info['name']))
             card_img = cv2.imread(img_name)
@@ -62,7 +62,7 @@ def calc_image_hashes(card_pool, save_to=None, hash_size=32, highfreq_factor=4):
             # If the image doesn't exist, download it from the URL
             if card_img is None:
                 fetch_data.fetch_card_image(card_info,
-                                            out_dir='%s/card_img/png/%s' % (transform_data.data_dir, card_info['set']))
+                                            out_dir='%s/card_img/png/%s' % (Config.data_dir, card_info['set']))
                 card_img = cv2.imread(img_name)
             if card_img is None:
                 print('WARNING: card %s is not found!' % img_name)
@@ -284,7 +284,7 @@ def find_card(img, thresh_c=5, kernel_size=(3, 3), size_thresh=10000):
     # Find the contour
     _, cnts, hier = cv2.findContours(img_erode, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     if len(cnts) == 0:
-        print('no contours')
+        #print('no contours')
         return []
 
     # The hierarchy from cv2.findContours() is similar to a tree: each node has an access to the parent, the first child
@@ -343,7 +343,7 @@ def draw_card_graph(exist_cards, card_pool, f_len):
         card_set = key[key.find('(') + 1:key.find(')')]
         confidence = sum(val) / f_len
         card_info = card_pool[(card_pool['name'] == card_name) & (card_pool['set'] == card_set)].iloc[0]
-        img_name = '%s/card_img/tiny/%s/%s_%s.png' % (transform_data.data_dir, card_info['set'],
+        img_name = '%s/card_img/tiny/%s/%s_%s.png' % (Config.data_dir, card_info['set'],
                                                       card_info['collector_number'],
                                                       fetch_data.get_valid_filename(card_info['name']))
         # If the card image is not found, just leave it blank
@@ -542,8 +542,8 @@ def main():
     else:
         # Merge database for all cards, then calculate pHash values of each, store them
         df_list = []
-        for set_name in fetch_data.all_set_list:
-            csv_name = '%s/csv/%s.csv' % (transform_data.data_dir, set_name)
+        for set_name in Config.all_set_list:
+            csv_name = '%s/csv/%s.csv' % (Config.data_dir, set_name)
             df = fetch_data.load_all_cards_text(csv_name)
             df_list.append(df)
         card_pool = pd.concat(df_list, sort=True)
