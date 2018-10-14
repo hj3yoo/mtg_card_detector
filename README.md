@@ -1,7 +1,33 @@
+# Magic: The Gathering Card Detector
 
-# Magic: The Gathering Card Detection Model
+MTG Card Detector is a real-time application that can identify Magic: The Gathering playing cards from either an image or a video. It utilizes various computer vision techniques to process the input image, and uses [perceptual hashing](https://jenssegers.com/61/perceptual-image-hashes) to identify the detected image of the cards with the matching cards from the database of MTG cards. Refer to [opencv_dnn.py](https://github.com/hj3yoo/mtg_card_detector/blob/master/opencv_dnn.py) for more detailed implementation.
 
-This is a fork of [Yolo-v3 and Yolo-v2 for Windows and Linux by AlexeyAB](https://github.com/AlexeyAB/darknet#how-to-compile-on-linux) for creating a custom model for [My MTG card detection project](https://github.com/hj3yoo/MTGCardDetector). 
+**Demo:**
+
+[![Demo #1](https://img.youtube.com/vi/BZkRZDyhMRE/0.jpg)](https://www.youtube.com/watch?v=BZkRZDyhMRE "Demo #1")
+
+You can run the demo using the following:
+
+```
+python3 opencv_dnn.py [-i path/to/input/file -o path/to/output/directory -hs (one of 16/32)  -dsp -dbg -gph]
+```
+
+Initially, the project used a powerful neural network named ['You Only Look Once (YOLO)'](https://arxiv.org/pdf/1506.02640v5.pdf) to detect individual cards, but it has been removed as of Oct 12th, 2018 [(note)](https://github.com/hj3yoo/mtg_card_detector#oct-12th-2018) in favour of classical CV techniques. 
+
+**Demo:**
+
+[![Demo #2](https://img.youtube.com/vi/kFE_k-mWo2A/0.jpg)](https://www.youtube.com/watch?v=kFE_k-mWo2A "Demo #2")
+
+You can still find the files used to train them:
+
+- [tiny_yolo.cfg](https://github.com/hj3yoo/mtg_card_detector/blob/master/cfg/tiny_yolo.cfg)
+- [tiny_yolo_final.weights](https://github.com/hj3yoo/mtg_card_detector/blob/master/weights/second_general/tiny_yolo_final.weights)
+- [obj.data](https://github.com/hj3yoo/mtg_card_detector/blob/master/data/obj.data) and [obj.names](https://github.com/hj3yoo/mtg_card_detector/blob/master/data/obj.names)
+- [fetch_data.py](https://github.com/hj3yoo/mtg_card_detector/blob/master/fetch_data.py): aggregates card images and database from [scryfall.com](https://scryfall.com/)
+- [transform_data.py](https://github.com/hj3yoo/mtg_card_detector/blob/master/transform_data.py): generate training images using the aggregated card images and database
+- [setup_train.py](https://github.com/hj3yoo/mtg_card_detector/blob/master/setup_train.py): create train.txt and test.txt required to train YOLO from the training dataset
+
+---------------------------------------------------------------------
 
 ## Day ~0: Sep 6th, 2018
 
@@ -120,13 +146,13 @@ Although it may be worth to generate large training dataset and train the model 
 
 ## Oct 12th, 2018
 
-I've been able to significantly cut down the processing time of the current implementation. For n cards detected in the video, the latency has decreased from (65+50n)ms to (10+25n)ms. There were two major bottlenecks that was slowing the program down:
+I've been able to significantly cut down the processing time of the current implementation. For n cards detected in the video, the latency has decreased from (65+50n)ms to (7+16n)ms. There were two major bottlenecks that was slowing the program down:
 
 --------------------------
 
 In order to identify the card from the snippet of the card image, I'm using perceptual hashing. When the card is detected in YOLO, I compute its pHash value from its image, and compare it with the pHash of every cards in the database to find the match. This process has a speed of O(n * m), where n is the number of cards detected in the image and m is the number of cards in the database. With more than 10000 different cards printed in MTG history, this computation was the first bottleneck. For the 50ms increment per detected card mentioned above, majority of that time was spent trying to subtract two 1024-bit hashes 10000+ times - that's more than 10^10 comparisons right there!
 
-Although I couldn't cut down on the number of arithmetics, I did find another place that was unncessarily slowing things down. The following is the elapsed time for subtracting pHash for all 10000 elements in pandas database:
+First, there were some overhead that was coming from the implementation of the library. The following is the elapsed time for subtracting pHash for all 10000 elements in pandas database:
 
 | hash_size  | elapsed_time (ms) |
 |---|---|
@@ -173,8 +199,18 @@ By pre-emptively flattening the hashes and using the hash subtraction's code (ye
 | 32 | 18.55 |
 | 64 | 45.79 |
 
+Furthermore, turns out that hash size of 16 is sufficient enough to distinguish each cards in most of the case. Halving the hash size further knocked down 7-9ms, as you only need to compare about quarter of the bits compared to hash size of 32.
+
 ------------------
 
 The other bottleneck is a something unfortunate. Turns out feeding the image through YOLO network consumes a constant 50 - 60ms per frame. Remember the processing time of (65+50)ms above? Yeah, that's where the 65ms is coming from.
 
-As hilarious and ironic it is, I would have to remove the network entirely to speed up the program... (((Facepalm into another dimension))) The program still works by replacing neural net with contour detection
+As hilarious and ironic it is, I would have to remove the network entirely to speed up the program... 
+**(((Facepalm into another dimension)))** 
+The program still works by replacing neural net with contour detection
+
+## Oct 13th, 2018
+
+Cleaning up everything to wrap up this project for now. If I can figure out how to move from bounding boxes of overlapping cards [(notes)](https://github.com/hj3yoo/mtg_card_detector#oct-4th-2018), I may come back to upgrade the project in the future. If you have any suggestion regarding this issue, please don't hesitate to let me know.
+
+Thank you for reading all the way up to here. Hope this project has helped you in some way.

@@ -1,3 +1,4 @@
+import argparse
 import cv2
 import imgaug as ia
 from imgaug import augmenters as iaa
@@ -489,7 +490,7 @@ class ExtractedObject:
         self.visible = False
 
 
-def main():
+def main(args):
     random.seed()
     ia.seed(random.randrange(10000))
 
@@ -506,17 +507,12 @@ def main():
         for i in range(len(class_name_list)):
             class_ids[class_name_list[i]] = i
 
-    num_gen = 60000
-    num_iter = 1
-    w_gen = 1440
-    h_gen = 960
-
-    for i in range(num_gen):
+    for i in range(args.num_gen):
         # Arbitrarily select top left and right corners for perspective transformation
         # Since the training image are generated with random rotation, don't need to skew all four sides
         skew = [[random.uniform(0, 0.25), 0], [0, 1], [1, 1],
                 [random.uniform(0.75, 1), 0]]
-        generator = ImageGenerator(background.get_random(), class_ids, w_gen, h_gen, skew=skew)
+        generator = ImageGenerator(background.get_random(), class_ids, args.width, args.height, skew=skew)
         out_name = ''
 
         # Use 2 to 5 cards per generator
@@ -536,7 +532,7 @@ def main():
             card = Card(card_img, card_info, detected_object_list)
             generator.add_card(card)
 
-        for j in range(num_iter):
+        for j in range(args.num_iter):
             seq = iaa.Sequential([
                 iaa.Multiply((0.8, 1.2)),  # darken / brighten the whole image
                 iaa.SimplexNoiseAlpha(first=iaa.Add(random.randrange(64)), per_channel=0.1, size_px_max=[3, 6],
@@ -566,4 +562,12 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-n', '--num_gen', dest='num_gen', help='Number of training images to generate',
+                        type=int, required=True)
+    parser.add_argument('-ni', '--num_iter', dest='num_iter', help='Number of iterations to generate each config',
+                        type=int, default=1)
+    parser.add_argument('-w', '--width', dest='width', help='Width of the training image', type=int, default=1440)
+    parser.add_argument('-ht', '--height', dest='height', help='Height of the training image', type=int, default=960)
+    args = parser.parse_args()
+    main(args)
