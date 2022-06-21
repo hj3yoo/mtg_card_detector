@@ -4,7 +4,7 @@ imgaug==0.2.6
 imutils==0.5.1
 json==2.0.9
 matplotlib==2.2.2
-numpy==1.15.2
+numpy==1.22.0
 pandas==0.23.0
 pickle
 PIL==5.1.0
